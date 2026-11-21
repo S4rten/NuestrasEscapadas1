@@ -1,44 +1,44 @@
 name: Compilar App iOS (.ipa)
 
 on:
-push:
-branches: [ main ]
-workflow_dispatch:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-build-ipa:
-runs-on: macos-15
+  build-ipa:
+    runs-on: macos-15
 
-steps:
-  - name: Descargar código del repositorio
-    uses: actions/checkout@v4
+    steps:
+      - name: Descargar codigo del repositorio
+        uses: actions/checkout@v4
 
-  - name: Instalar XcodeGen
-    run: brew install xcodegen
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
 
-  - name: Generar proyecto de Xcode (.xcodeproj)
-    run: xcodegen generate
+      - name: Generar proyecto de Xcode (.xcodeproj)
+        run: xcodegen generate
 
-  - name: Compilar aplicación sin firma de desarrollador
-    run: |
-      xcodebuild clean build \
-        -project NuestrasEscapadas.xcodeproj \
-        -scheme NuestrasEscapadas \
-        -configuration Release \
-        -sdk iphoneos \
-        -derivedDataPath build \
-        CODE_SIGNING_ALLOWED=NO \
-        CODE_SIGNING_REQUIRED=NO \
-        CODE_SIGN_IDENTITY=""
+      - name: Compilar aplicacion sin firma de desarrollador
+        run: |
+          xcodebuild clean build \
+            -project NuestrasEscapadas.xcodeproj \
+            -scheme NuestrasEscapadas \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
 
-  - name: Empaquetar archivo .ipa instalable
-    run: |
-      mkdir -p Payload
-      cp -r build/Build/Products/Release-iphoneos/NuestrasEscapadas.app Payload/
-      zip -r NuestrasEscapadas.ipa Payload
+      - name: Empaquetar archivo .ipa instalable
+        run: |
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/NuestrasEscapadas.app Payload/
+          zip -r NuestrasEscapadas.ipa Payload
 
-  - name: Subir .ipa listo para descargar
-    uses: actions/upload-artifact@v4
-    with:
-      name: NuestrasEscapadas-iOS
-      path: NuestrasEscapadas.ipa
+      - name: Subir .ipa listo para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuestrasEscapadas-iOS
+          path: NuestrasEscapadas.ipa
