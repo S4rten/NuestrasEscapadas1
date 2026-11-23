@@ -52,6 +52,7 @@ struct Escapada: Identifiable, Codable, Hashable {
     var tieneVuelos: Bool = true
     var esSorpresa: Bool
     var pistaSorpresa: String
+    var diasRevelarSorpresaAntes: Int = 0
     var recuerdo: String
     var momentoFavorito: String = ""
     var valoracion: ValoracionViaje = ValoracionViaje()
@@ -67,7 +68,15 @@ struct Escapada: Identifiable, Codable, Hashable {
     
     var sorpresaDesbloqueada: Bool {
         let inicioDelDia = Calendar.current.startOfDay(for: fechaInicio)
-        return Date() >= inicioDelDia
+        let diasAdelanto = max(0, diasRevelarSorpresaAntes)
+        let fechaRevelacion = Calendar.current.date(byAdding: .day, value: -diasAdelanto, to: inicioDelDia) ?? inicioDelDia
+        return Date() >= fechaRevelacion
+    }
+    
+    var fechaRevelacionSorpresa: Date {
+        let inicioDelDia = Calendar.current.startOfDay(for: fechaInicio)
+        let diasAdelanto = max(0, diasRevelarSorpresaAntes)
+        return Calendar.current.date(byAdding: .day, value: -diasAdelanto, to: inicioDelDia) ?? inicioDelDia
     }
     
     var totalDias: Int {
@@ -97,6 +106,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         tieneVuelos: Bool = true,
         esSorpresa: Bool,
         pistaSorpresa: String,
+        diasRevelarSorpresaAntes: Int = 0,
         recuerdo: String,
         momentoFavorito: String = "",
         valoracion: ValoracionViaje = ValoracionViaje(),
@@ -114,6 +124,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         self.tieneVuelos = tieneVuelos
         self.esSorpresa = esSorpresa
         self.pistaSorpresa = pistaSorpresa
+        self.diasRevelarSorpresaAntes = max(0, diasRevelarSorpresaAntes)
         self.recuerdo = recuerdo
         self.momentoFavorito = momentoFavorito
         self.valoracion = valoracion
@@ -125,7 +136,7 @@ struct Escapada: Identifiable, Codable, Hashable {
     
     enum CodingKeys: String, CodingKey {
         case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, esSorpresa, pistaSorpresa
-        case recuerdo, momentoFavorito, valoracion, vuelos, checklist, itinerario, ideas
+        case diasRevelarSorpresaAntes, recuerdo, momentoFavorito, valoracion, vuelos, checklist, itinerario, ideas
     }
     
     init(from decoder: Decoder) throws {
@@ -140,6 +151,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         tieneVuelos = try c.decodeIfPresent(Bool.self, forKey: .tieneVuelos) ?? !vuelos.isEmpty
         esSorpresa = try c.decodeIfPresent(Bool.self, forKey: .esSorpresa) ?? false
         pistaSorpresa = try c.decodeIfPresent(String.self, forKey: .pistaSorpresa) ?? ""
+        diasRevelarSorpresaAntes = try c.decodeIfPresent(Int.self, forKey: .diasRevelarSorpresaAntes) ?? 0
         recuerdo = try c.decodeIfPresent(String.self, forKey: .recuerdo) ?? ""
         momentoFavorito = try c.decodeIfPresent(String.self, forKey: .momentoFavorito) ?? ""
         valoracion = try c.decodeIfPresent(ValoracionViaje.self, forKey: .valoracion) ?? ValoracionViaje()
@@ -581,6 +593,7 @@ class EscapadasStore: ObservableObject {
                 tieneVuelos: false,
                 esSorpresa: true,
                 pistaSorpresa: "Trae botas de montaña y ganas de desconectar.",
+                diasRevelarSorpresaAntes: 2,
                 recuerdo: "",
                 vuelos: [],
                 checklist: [
@@ -975,6 +988,21 @@ struct DetalleEscapadaView: View {
                                 store.actualizarEscapada(copia)
                             }
                         ))
+                        
+                        Stepper(
+                            escapada.diasRevelarSorpresaAntes == 0
+                            ? "Revelar el mismo día del viaje"
+                            : "Revelar \(escapada.diasRevelarSorpresaAntes) \(escapada.diasRevelarSorpresaAntes == 1 ? "día" : "días") antes",
+                            value: Binding<Int>(
+                                get: { escapada.diasRevelarSorpresaAntes },
+                                set: { nuevosDias in
+                                    var copia = escapada
+                                    copia.diasRevelarSorpresaAntes = max(0, nuevosDias)
+                                    store.actualizarEscapada(copia)
+                                }
+                            ),
+                            in: 0...30
+                        )
                     }
                 }
                 
@@ -1126,7 +1154,7 @@ struct DetalleEscapadaView: View {
                             Image(systemName: "eye.slash.fill")
                                 .font(.title2)
                                 .foregroundStyle(Color.accentColor)
-                            Text("El itinerario, destino y vuelos permanecerán ocultos automáticamente hasta el día \(escapada.fechaInicio.formatted(date: .long, time: .omitted)) para mantener la sorpresa.")
+                            Text("El itinerario, destino y vuelos permanecerán ocultos automáticamente hasta el \(escapada.fechaRevelacionSorpresa.formatted(date: .long, time: .omitted)) para mantener la sorpresa.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -1220,7 +1248,7 @@ struct DetalleEscapadaView: View {
                         }
                     }
                     
-                    ForEach(Array(escapada.ideas.enumerated()), id: \.offset) { idx, idea in
+                    ForEach(Array(escapada.ideas.enumerated()), id: \.offset) { _, idea in
                         if let url = URL(string: idea), idea.hasPrefix("http") {
                             Link(idea, destination: url)
                         } else {
@@ -1486,6 +1514,7 @@ struct NuevaEscapadaSheet: View {
     @State private var icono = "✈️"
     @State private var esSorpresa = false
     @State private var pista = ""
+    @State private var diasRevelarAntes = 0
     
     // Opción de vuelos al crear la escapada
     @State private var tieneVuelos = false
@@ -1586,6 +1615,13 @@ struct NuevaEscapadaSheet: View {
                     Toggle("🎁 Modo plan sorpresa", isOn: $esSorpresa)
                     if esSorpresa {
                         TextField("Pista para tu pareja", text: $pista)
+                        Stepper(
+                            diasRevelarAntes == 0
+                            ? "Revelar: el mismo día"
+                            : "Revelar: \(diasRevelarAntes) \(diasRevelarAntes == 1 ? "día" : "días") antes",
+                            value: $diasRevelarAntes,
+                            in: 0...30
+                        )
                     }
                 }
             }
@@ -1628,6 +1664,7 @@ struct NuevaEscapadaSheet: View {
                             tieneVuelos: tieneVuelos,
                             esSorpresa: esSorpresa,
                             pistaSorpresa: pista,
+                            diasRevelarSorpresaAntes: max(0, diasRevelarAntes),
                             recuerdo: "",
                             vuelos: vuelosIniciales,
                             checklist: [ItemChecklist(texto: "Revisar documentación", completado: false, asignadoA: "Ambos")],
