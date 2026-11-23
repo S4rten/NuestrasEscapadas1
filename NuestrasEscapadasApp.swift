@@ -850,6 +850,122 @@ struct DetalleEscapadaView: View {
                 }
                 
                 // Sección Vuelos
+                Section {
+                    if escapada.vuelos.isEmpty {
+                        Text("Sin vuelos añadidos")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(escapada.vuelos) { vuelo in
+                            VueloCardView(vuelo: vuelo)
+                        }
+                        .onDelete { offsets in
+                            var copia = escapada
+                            copia.vuelos.remove(atOffsets: offsets)
+                            store.actualizarEscapada(copia)
+                        }
+                    }
+                    
+                    Button {
+                        mostrandoAgregarVuelo = true
+                    } label: {
+                        Label("Añadir vuelo", systemImage: "airplane.circle.fill")
+                    }
+                } header: {
+                    Text("Vuelos y billetes")
+                }
+                
+                // Sección Checklist
+                Section {
+                    HStack {
+                        TextField("Añadir preparativo...", text: $nuevoItemTexto)
+                        Picker("", selection: $nuevoItemAsignado) {
+                            Text("Ambos").tag("Ambos")
+                            Text("Yo").tag("Yo")
+                            Text("Tú").tag("Tú")
+                        }
+                        .labelsHidden()
+                        Button {
+                            guard !nuevoItemTexto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                            var copia = escapada
+                            copia.checklist.append(
+                                ItemChecklist(
+                                    texto: nuevoItemTexto.trimmingCharacters(in: .whitespaces),
+                                    completado: false,
+                                    asignadoA: nuevoItemAsignado
+                                )
+                            )
+                            store.actualizarEscapada(copia)
+                            nuevoItemTexto = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                    }
+                    
+                    ForEach(escapada.checklist) { item in
+                        HStack {
+                            Image(systemName: item.completado ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(item.completado ? Color.accentColor : .secondary)
+                            Text(item.texto)
+                                .strikethrough(item.completado)
+                                .foregroundStyle(item.completado ? .secondary : .primary)
+                            Spacer()
+                            Text(item.asignadoA)
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                .clipShape(Capsule())
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            var copia = escapada
+                            if let i = copia.checklist.firstIndex(where: { $0.id == item.id }) {
+                                copia.checklist[i].completado.toggle()
+                                store.actualizarEscapada(copia)
+                            }
+                        }
+                    }
+                    .onDelete { offsets in
+                        var copia = escapada
+                        copia.checklist.remove(atOffsets: offsets)
+                        store.actualizarEscapada(copia)
+                    }
+                } header: {
+                    Text("Checklist compartida")
+                }
+                
+                // Sección Ideas
+                Section {
+                    HStack {
+                        TextField("Idea, restaurante o enlace...", text: $nuevaIdeaTexto)
+                        Button {
+                            guard !nuevaIdeaTexto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                            var copia = escapada
+                            copia.ideas.append(nuevaIdeaTexto.trimmingCharacters(in: .whitespaces))
+                            store.actualizarEscapada(copia)
+                            nuevaIdeaTexto = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                    }
+                    
+                    ForEach(Array(escapada.ideas.enumerated()), id: \.offset) { idx, idea in
+                        if let url = URL(string: idea), idea.hasPrefix("http") {
+                            Link(idea, destination: url)
+                        } else {
+                            Text(idea)
+                        }
+                    }
+                    .onDelete { offsets in
+                        var copia = escapada
+                        copia.ideas.remove(atOffsets: offsets)
+                        store.actualizarEscapada(copia)
+                    }
+                } header: {
+                    Text("Notas rápidas e ideas")
+                }
+                
                 // Sección Recuerdo Ampliada + Valoración por Categorías (1 a 5 estrellas)
                 Section {
                     VStack(alignment: .leading, spacing: 14) {
@@ -950,7 +1066,7 @@ struct DetalleEscapadaView: View {
                     HStack {
                         Text("Nuestro recuerdo y valoración")
                         Spacer()
-                        if past {
+                        if escapada.yaVivida {
                             Text("Ya vivido")
                                 .font(.caption2.bold())
                                 .foregroundStyle(Color.accentColor)
@@ -1329,7 +1445,6 @@ struct AgregarVueloSheet: View {
             }
             mensajeAutocompletado = "✨ Vuelo \(code) completado: \(ruta.origen) → \(ruta.destino)"
         } else if code.count >= 5, aerolineasPorPrefijo[prefijo] != nil {
-            // Si es un vuelo comercial válido de esa aerolínea, pre-rellenamos origen MAD por comodidad si está vacío
             if origen.isEmpty {
                 origen = "MAD"
             }
