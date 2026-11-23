@@ -40,6 +40,17 @@ struct RetoFotografico: Identifiable, Codable, Hashable {
     var titulo: String
     var completado: Bool = false
     var completadoPor: String = ""
+    var fotoBase64: String? = nil
+}
+
+struct DeseoViaje: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var destino: String
+    var nota: String = ""
+    var urlReferencia: String = ""
+    var icono: String = "✨"
+    var agregadoPor: String = "Ambos"
+    var fechaAgregado: Date = Date()
 }
 
 struct DocumentoBoveda: Identifiable, Codable, Hashable {
@@ -451,109 +462,93 @@ struct PrevisionDia: Identifiable {
 enum ServicioClima {
     static func obtenerPrevision(destino: String, fechaInicio: Date) async -> [PrevisionDia] {
         let limpio = destino.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !limpio.isEmpty else { return [] }
-        
-        var coord: CLLocationCoordinate2D? = coordenadaRapida(limpio)
-        if coord == nil {
-            let geocoder = CLGeocoder()
-            if let placemarks = try? await geocoder.geocodeAddressString(limpio),
-               let loc = placemarks.first?.location {
-                coord = loc.coordinate
-            }
-        }
-        guard let c = coord else { return [] }
-        
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(c.latitude)&longitude=\(c.longitude)&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7"
-        guard let url = URL(string: urlString) else { return [] }
-        
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let daily = json["daily"] as? [String: Any],
-                  let times = daily["time"] as? [String],
-                  let codes = daily["weather_code"] as? [Int],
-                  let maxs = daily["temperature_2m_max"] as? [Double],
-                  let mins = daily["temperature_2m_min"] as? [Double] else {
-                return []
-            }
-            
-            let count = min(5, min(times.count, min(codes.count, min(maxs.count, mins.count))))
-            var lista: [PrevisionDia] = []
-            for i in 0..<count {
-                let info = interpretarWMO(codes[i])
-                lista.append(
-                    PrevisionDia(
-                        fecha: formatearFechaCorta(times[i]),
-                        icono: info.icono,
-                        tempMax: Int(round(maxs[i])),
-                        tempMin: Int(round(mins[i])),
-                        descripcion: info.texto
-                    )
-                )
-            }
-            return lista
-        } catch {
-            return []
-        }
-    }
-    
-    private static func formatearFechaCorta(_ iso: String) -> String {
-        let partes = iso.split(separator: "-")
-        guard partes.count == 3 else { return iso }
-        return "\(partes[2])/\(partes[1])"
-    }
-    
-    private static func interpretarWMO(_ code: Int) -> (icono: String, texto: String) {
-        switch code {
-        case 0: return ("☀️", "Despejado")
-        case 1, 2: return ("⛅️", "Poco nuboso")
-        case 3: return ("☁️", "Nublado")
-        case 45, 48: return ("🌫️", "Niebla")
-        case 51, 53, 55, 61, 63, 65, 80, 81, 82: return ("🌧️", "Lluvia")
-        case 71, 73, 75, 77, 85, 86: return ("❄️", "Nieve")
-        case 95, 96, 99: return ("⛈️", "Tormenta")
-        default: return ("🌤️", "Variable")
-        }
-    }
-    
-    private static func coordenadaRapida(_ texto: String) -> CLLocationCoordinate2D? {
-        let lower = texto.lowercased()
-        let catalogo: [(String, Double, Double)] = [
-            ("praga", 50.0755, 14.4378), ("jerte", 40.2236, -5.7519), ("brihuega", 40.7606, -2.8692),
-            ("madrid", 40.4168, -3.7038), ("barcelona", 41.3874, 2.1686), ("roma", 41.9028, 12.4964),
-            ("paris", 48.8566, 2.3522), ("parís", 48.8566, 2.3522), ("londres", 51.5072, -0.1276),
-            ("lisboa", 38.7223, -9.1393), ("oporto", 41.1579, -8.6291), ("cracovia", 50.0647, 19.9450),
-            ("amsterdam", 52.3676, 4.9041), ("ámsterdam", 52.3676, 4.9041), ("viena", 48.2082, 16.3738),
-            ("budapest", 47.4979, 19.0402), ("sevilla", 37.3891, -5.9845), ("granada", 37.1773, -3.5986),
-            ("valencia", 39.4699, -0.3763), ("mallorca", 39.6953, 3.0176)
-        ]
-        for (clave, lat, lon) in catalogo where lower.contains(clave) {
-            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        }
-        return nil
-    }
-}
-
-// Conversor de Divisa en tiempo real (Google / Frankfurter ECB rates)
+// Conversor de Divisa en tiempo real (Europa, Norteamérica, Latinoamérica y Asia)
 enum ServicioDivisas {
-    static let monedasDisponibles: [(codigo: String, nombre: String, simbolo: String)] = [
-        ("EUR", "Euro (€)", "€"),
-        ("CZK", "Corona checa (CZK)", "Kč"),
-        ("GBP", "Libra esterlina (GBP)", "£"),
-        ("PLN", "Zloty polaco (PLN)", "zł"),
-        ("HUF", "Forinto húngaro (HUF)", "Ft"),
-        ("CHF", "Franco suizo (CHF)", "CHF"),
-        ("USD", "Dólar EEUU (USD)", "$"),
-        ("JPY", "Yen japonés (JPY)", "¥"),
-        ("MAD", "Dírham marroquí (MAD)", "DH"),
-        ("ISK", "Corona islandesa (ISK)", "kr")
+    struct MonedaItem: Identifiable, Hashable {
+        let codigo: String
+        let nombre: String
+        let region: String
+    }
+    
+    static let monedasDisponibles: [MonedaItem] = [
+        // Europa
+        MonedaItem(codigo: "EUR", nombre: "Euro (€)", region: "Europa"),
+        MonedaItem(codigo: "GBP", nombre: "Libra esterlina (GBP)", region: "Europa"),
+        MonedaItem(codigo: "CHF", nombre: "Franco suizo (CHF)", region: "Europa"),
+        MonedaItem(codigo: "CZK", nombre: "Corona checa (CZK)", region: "Europa"),
+        MonedaItem(codigo: "PLN", nombre: "Zloty polaco (PLN)", region: "Europa"),
+        MonedaItem(codigo: "HUF", nombre: "Forinto húngaro (HUF)", region: "Europa"),
+        MonedaItem(codigo: "SEK", nombre: "Corona sueca (SEK)", region: "Europa"),
+        MonedaItem(codigo: "NOK", nombre: "Corona noruega (NOK)", region: "Europa"),
+        MonedaItem(codigo: "DKK", nombre: "Corona danesa (DKK)", region: "Europa"),
+        MonedaItem(codigo: "ISK", nombre: "Corona islandesa (ISK)", region: "Europa"),
+        MonedaItem(codigo: "RON", nombre: "Leu rumano (RON)", region: "Europa"),
+        MonedaItem(codigo: "BGN", nombre: "Lev búlgaro (BGN)", region: "Europa"),
+        MonedaItem(codigo: "RSD", nombre: "Dinar serbio (RSD)", region: "Europa"),
+        MonedaItem(codigo: "ALL", nombre: "Lek albanés (ALL)", region: "Europa"),
+        MonedaItem(codigo: "TRY", nombre: "Lira turca (TRY)", region: "Europa"),
+        
+        // Norteamérica
+        MonedaItem(codigo: "USD", nombre: "Dólar estadounidense (USD)", region: "Norteamérica"),
+        MonedaItem(codigo: "CAD", nombre: "Dólar canadiense (CAD)", region: "Norteamérica"),
+        MonedaItem(codigo: "MXN", nombre: "Peso mexicano (MXN)", region: "Norteamérica"),
+        
+        // Latinoamérica y Caribe
+        MonedaItem(codigo: "ARS", nombre: "Peso argentino (ARS)", region: "Latinoamérica"),
+        MonedaItem(codigo: "BRL", nombre: "Real brasileño (BRL)", region: "Latinoamérica"),
+        MonedaItem(codigo: "CLP", nombre: "Peso chileno (CLP)", region: "Latinoamérica"),
+        MonedaItem(codigo: "COP", nombre: "Peso colombiano (COP)", region: "Latinoamérica"),
+        MonedaItem(codigo: "PEN", nombre: "Sol peruano (PEN)", region: "Latinoamérica"),
+        MonedaItem(codigo: "UYU", nombre: "Peso uruguayo (UYU)", region: "Latinoamérica"),
+        MonedaItem(codigo: "CRC", nombre: "Colón costarricense (CRC)", region: "Latinoamérica"),
+        MonedaItem(codigo: "DOP", nombre: "Peso dominicano (DOP)", region: "Latinoamérica"),
+        MonedaItem(codigo: "GTQ", nombre: "Quetzal guatemalteco (GTQ)", region: "Latinoamérica"),
+        MonedaItem(codigo: "PAB", nombre: "Balboa panameño (PAB)", region: "Latinoamérica"),
+        MonedaItem(codigo: "PYG", nombre: "Guaraní paraguayo (PYG)", region: "Latinoamérica"),
+        MonedaItem(codigo: "BOB", nombre: "Boliviano (BOB)", region: "Latinoamérica"),
+        
+        // Asia y Oriente Medio
+        MonedaItem(codigo: "JPY", nombre: "Yen japonés (JPY)", region: "Asia"),
+        MonedaItem(codigo: "KRW", nombre: "Won surcoreano (KRW)", region: "Asia"),
+        MonedaItem(codigo: "CNY", nombre: "Yuan chino (CNY)", region: "Asia"),
+        MonedaItem(codigo: "HKD", nombre: "Dólar de Hong Kong (HKD)", region: "Asia"),
+        MonedaItem(codigo: "TWD", nombre: "Dólar taiwanés (TWD)", region: "Asia"),
+        MonedaItem(codigo: "THB", nombre: "Baht tailandés (THB)", region: "Asia"),
+        MonedaItem(codigo: "VND", nombre: "Dong vietnamita (VND)", region: "Asia"),
+        MonedaItem(codigo: "IDR", nombre: "Rupia indonesia (IDR)", region: "Asia"),
+        MonedaItem(codigo: "SGD", nombre: "Dólar de Singapur (SGD)", region: "Asia"),
+        MonedaItem(codigo: "MYR", nombre: "Ringgit malayo (MYR)", region: "Asia"),
+        MonedaItem(codigo: "PHP", nombre: "Peso filipino (PHP)", region: "Asia"),
+        MonedaItem(codigo: "INR", nombre: "Rupia india (INR)", region: "Asia"),
+        MonedaItem(codigo: "AED", nombre: "Dírham EAU (AED)", region: "Asia"),
+        MonedaItem(codigo: "QAR", nombre: "Riyal catarí (QAR)", region: "Asia"),
+        MonedaItem(codigo: "SAR", nombre: "Riyal saudí (SAR)", region: "Asia"),
+        MonedaItem(codigo: "ILS", nombre: "Nuevo séquel israelí (ILS)", region: "Asia"),
+        MonedaItem(codigo: "JOD", nombre: "Dinar jordano (JOD)", region: "Asia"),
+        
+        // Otros destinos frecuentes
+        MonedaItem(codigo: "MAD", nombre: "Dírham marroquí (MAD)", region: "Otros")
     ]
     
     static func tasaAEuros(desde moneda: String) async -> Double {
         let code = moneda.uppercased()
         if code == "EUR" { return 1.0 }
         
-        // Consulta en tiempo real (tipos oficiales del BCE / mercado usados en Google)
+        // 1. API global abierta (soporta Latinoamérica, Asia, Norteamérica y Europa)
+        if let url = URL(string: "https://open.er-api.com/v6/latest/\(code)") {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let rates = json["rates"] as? [String: Any],
+                   let eurRate = rates["EUR"] as? Double, eurRate > 0 {
+                    return eurRate
+                }
+            } catch {
+                // Continuar con respaldo
+            }
+        }
+        
+        // 2. Respaldo BCE (Frankfurter)
         if let url = URL(string: "https://api.frankfurter.app/latest?from=\(code)&to=EUR") {
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
@@ -563,20 +558,22 @@ enum ServicioDivisas {
                     return eurRate
                 }
             } catch {
-                // Fallback a tasas de referencia si no hay red
+                // Continuar con tabla local
             }
         }
         
         let respaldo: [String: Double] = [
-            "CZK": 0.0398,
-            "GBP": 1.19,
-            "PLN": 0.234,
-            "HUF": 0.00245,
-            "CHF": 1.06,
-            "USD": 0.92,
-            "JPY": 0.0061,
-            "MAD": 0.093,
-            "ISK": 0.0067
+            "GBP": 1.19, "CHF": 1.06, "CZK": 0.0398, "PLN": 0.234, "HUF": 0.00245,
+            "SEK": 0.087, "NOK": 0.085, "DKK": 0.134, "ISK": 0.0067, "RON": 0.20,
+            "BGN": 0.511, "RSD": 0.0085, "ALL": 0.010, "TRY": 0.026,
+            "USD": 0.92, "CAD": 0.66, "MXN": 0.046,
+            "ARS": 0.0009, "BRL": 0.16, "CLP": 0.00095, "COP": 0.00021, "PEN": 0.245,
+            "UYU": 0.022, "CRC": 0.0018, "DOP": 0.015, "GTQ": 0.119, "PAB": 0.92,
+            "PYG": 0.00012, "BOB": 0.133,
+            "JPY": 0.0061, "KRW": 0.00066, "CNY": 0.127, "HKD": 0.118, "TWD": 0.028,
+            "THB": 0.027, "VND": 0.000036, "IDR": 0.000058, "SGD": 0.69, "MYR": 0.21,
+            "PHP": 0.016, "INR": 0.011, "AED": 0.25, "QAR": 0.252, "SAR": 0.245,
+            "ILS": 0.25, "JOD": 1.30, "MAD": 0.093
         ]
         return respaldo[code] ?? 1.0
     }
@@ -584,6 +581,20 @@ enum ServicioDivisas {
     static func urlGoogleFinanzas(cantidad: Double, desde moneda: String) -> URL? {
         let q = "\(cantidad) \(moneda) to EUR".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         return URL(string: "https://www.google.com/search?q=\(q)")
+    }
+}
+
+// Utilidad compartida para comprimir imágenes en Base64 para Firestore
+enum UtilidadImagen {
+    static func comprimirParaNube(_ image: UIImage, maxLado: CGFloat = 850, calidad: CGFloat = 0.62) -> String? {
+        let size = image.size
+        let ratio = min(maxLado / max(size.width, 1), maxLado / max(size.height, 1))
+        let targetSize = ratio >= 1 ? size : CGSize(width: size.width * ratio, height: size.height * ratio)
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let redimensionada = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+        return redimensionada.jpegData(compressionQuality: calidad)?.base64EncodedString()
     }
 }
 
@@ -661,6 +672,7 @@ enum GestorNotificaciones {
 @MainActor
 class EscapadasStore: ObservableObject {
     @Published var escapadas: [Escapada] = []
+    @Published var wishlist: [DeseoViaje] = []
     @Published var codigoPareja: String {
         didSet {
             UserDefaults.standard.set(codigoPareja, forKey: "codigo_pareja_ios")
@@ -671,7 +683,9 @@ class EscapadasStore: ObservableObject {
     
     private var db: Firestore?
     private var listener: ListenerRegistration?
+    private var wishlistListener: ListenerRegistration?
     private let localBackupKey = "nuestras_escapadas_backup_v3"
+    private let localWishlistKey = "nuestras_escapadas_wishlist_v1"
     private var primeraCargaSala = true
     
     init() {
@@ -684,6 +698,7 @@ class EscapadasStore: ObservableObject {
     
     deinit {
         listener?.remove()
+        wishlistListener?.remove()
     }
     
     private func configurarFirebase() {
@@ -691,6 +706,7 @@ class EscapadasStore: ObservableObject {
             estadoNube = "Modo local (falta GoogleService-Info.plist)"
             firebaseActivo = false
             if escapadas.isEmpty { cargarEjemplosIniciales(subirANube: false) }
+            if wishlist.isEmpty { cargarWishlistInicial(subirANube: false) }
             return
         }
         
@@ -715,6 +731,7 @@ class EscapadasStore: ObservableObject {
         guard let db = db else { return }
         
         listener?.remove()
+        wishlistListener?.remove()
         primeraCargaSala = true
         estadoNube = "Conectando..."
         
@@ -747,6 +764,20 @@ class EscapadasStore: ObservableObject {
                 self.guardarCopiaLocal()
                 for esc in remotas {
                     GestorNotificaciones.programarParaEscapada(esc)
+                }
+            }
+        }
+        
+        let colWishlist = db.collection("parejas").document(limpio).collection("wishlist")
+        wishlistListener = colWishlist.addSnapshotListener { [weak self] snapshot, _ in
+            Task { @MainActor [weak self] in
+                guard let self = self, let docs = snapshot?.documents else { return }
+                let remotos: [DeseoViaje] = docs.compactMap { try? $0.data(as: DeseoViaje.self) }
+                if remotos.isEmpty && self.wishlist.isEmpty {
+                    self.cargarWishlistInicial(subirANube: true)
+                } else {
+                    self.wishlist = remotos.sorted { $0.fechaAgregado > $1.fechaAgregado }
+                    self.guardarCopiaLocal()
                 }
             }
         }
@@ -788,6 +819,42 @@ class EscapadasStore: ObservableObject {
         eliminarDeFirestore(escapada)
     }
     
+    func agregarDeseo(_ deseo: DeseoViaje) {
+        wishlist.insert(deseo, at: 0)
+        guardarCopiaLocal()
+        guard let db = db else { return }
+        try? db.collection("parejas")
+            .document(codigoPareja)
+            .collection("wishlist")
+            .document(deseo.id.uuidString)
+            .setData(from: deseo, merge: false)
+    }
+    
+    func eliminarDeseo(_ deseo: DeseoViaje) {
+        wishlist.removeAll { $0.id == deseo.id }
+        guardarCopiaLocal()
+        guard let db = db else { return }
+        db.collection("parejas")
+            .document(codigoPareja)
+            .collection("wishlist")
+            .document(deseo.id.uuidString)
+            .delete()
+    }
+    
+    private func cargarWishlistInicial(subirANube: Bool) {
+        let iniciales = [
+            DeseoViaje(destino: "Kioto y Tokio en primavera", nota: "Ver los cerezos en flor y probar ramen auténtico", icono: "🌸", agregadoPor: "Ambos"),
+            DeseoViaje(destino: "Costa Amalfitana en coche", nota: "Positano, Ravello y helados frente al mar", icono: "🍋", agregadoPor: "Ambos")
+        ]
+        wishlist = iniciales
+        guardarCopiaLocal()
+        if subirANube, let db = db {
+            for d in iniciales {
+                try? db.collection("parejas").document(codigoPareja).collection("wishlist").document(d.id.uuidString).setData(from: d, merge: false)
+            }
+        }
+    }
+    
     private func guardarEnFirestore(_ escapada: Escapada) {
         guard let db = db else { return }
         do {
@@ -821,17 +888,21 @@ class EscapadasStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(escapadas)
             UserDefaults.standard.set(data, forKey: localBackupKey)
+            let wData = try JSONEncoder().encode(wishlist)
+            UserDefaults.standard.set(wData, forKey: localWishlistKey)
         } catch {
             // Ignorar error de respaldo local
         }
     }
     
     private func cargarCopiaLocal() {
-        guard let data = UserDefaults.standard.data(forKey: localBackupKey) else { return }
-        do {
-            escapadas = try JSONDecoder().decode([Escapada].self, from: data)
-        } catch {
-            escapadas = []
+        if let data = UserDefaults.standard.data(forKey: localBackupKey),
+           let dec = try? JSONDecoder().decode([Escapada].self, from: data) {
+            escapadas = dec
+        }
+        if let wData = UserDefaults.standard.data(forKey: localWishlistKey),
+           let wDec = try? JSONDecoder().decode([DeseoViaje].self, from: wData) {
+            wishlist = wDec
         }
     }
     
@@ -977,6 +1048,14 @@ struct ContentView: View {
             }
             .tabItem {
                 Label("Mapa", systemImage: "map.fill")
+            }
+            
+            NavigationStack {
+                WishlistView()
+                    .navigationTitle("Algún día iremos")
+            }
+            .tabItem {
+                Label("Wishlist", systemImage: "sparkles")
             }
             
             NavigationStack {
@@ -1224,7 +1303,11 @@ struct DetalleEscapadaView: View {
     @State private var mostrandoEditarAlojamiento = false
     @State private var mostrandoAgregarGasto = false
     @State private var mostrandoAgregarDocumento = false
+    @State private var mostrandoRuleta = false
     @State private var documentoSeleccionado: DocumentoBoveda? = nil
+    @State private var retoParaFoto: RetoFotografico? = nil
+    @State private var itemPickerReto: PhotosPickerItem? = nil
+    @State private var retoConFotoEnVisor: RetoFotografico? = nil
     @State private var codigoAlojamientoCopiado = false
     @State private var previsionClima: [PrevisionDia] = []
     @State private var cargandoClima = false
@@ -1308,6 +1391,27 @@ struct DetalleEscapadaView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    
+                    Button {
+                        mostrandoRuleta = true
+                    } label: {
+                        HStack {
+                            Text("🎲")
+                                .font(.title3)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Ruleta de decisiones en pareja")
+                                    .font(.subheadline.bold())
+                                Text("¿No sabéis qué hacer o dónde cenar? Girad la ruleta")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
                 
                 // Sección Previsión del Tiempo en destino (oculta si la sorpresa está bloqueada)
@@ -1628,37 +1732,7 @@ struct DetalleEscapadaView: View {
                                                 .font(.caption.bold())
                                         }
                                         .buttonStyle(.bordered)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        } else {
-                            Button {
-                                mostrandoEditarAlojamiento = true
-                            } label: {
-                                Label("Añadir hotel, apartamento o alojamiento", systemImage: "bed.double.fill")
-                            }
-                        }
-                    } header: {
-                        Text("Alojamiento")
-                    }
-                } else {
-                    Section {
-                        HStack(spacing: 12) {
-                            Image(systemName: "eye.slash.fill")
-                                .font(.title2)
-                                .foregroundStyle(Color.accentColor)
-                            Text("El destino, el tiempo, el itinerario y las reservas permanecerán ocultos automáticamente hasta el \(escapada.fechaRevelacionSorpresa.formatted(date: .long, time: .omitted)) para mantener la sorpresa.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 6)
-                    } header: {
-                        Text("Sorpresa protegida")
-                    }
-                }
-                
-                // Sección Retos Fotográficos del Viaje (Bingo en pareja)
+                // Sección Retos Fotográficos del Viaje (con opción de añadir foto real)
                 Section {
                     HStack {
                         TextField("Nuevo reto fotográfico...", text: $nuevoRetoTexto)
@@ -1692,28 +1766,58 @@ struct DetalleEscapadaView: View {
                     } else {
                         ForEach(escapada.retosFoto) { reto in
                             HStack(spacing: 10) {
-                                Image(systemName: reto.completado ? "checkmark.seal.fill" : "camera.circle")
-                                    .font(.title3)
-                                    .foregroundStyle(reto.completado ? .green : Color.accentColor)
-                                Text(reto.titulo)
-                                    .font(.subheadline)
-                                    .strikethrough(reto.completado)
-                                    .foregroundStyle(reto.completado ? .secondary : .primary)
+                                if let b64 = reto.fotoBase64,
+                                   let data = Data(base64Encoded: b64),
+                                   let uiImg = UIImage(data: data) {
+                                    Button {
+                                        retoConFotoEnVisor = reto
+                                    } label: {
+                                        Image(uiImage: uiImg)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 46, height: 46)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Image(systemName: reto.completado ? "checkmark.seal.fill" : "camera.circle")
+                                        .font(.title2)
+                                        .foregroundStyle(reto.completado ? .green : Color.accentColor)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(reto.titulo)
+                                        .font(.subheadline)
+                                        .strikethrough(reto.completado)
+                                        .foregroundStyle(reto.completado ? .secondary : .primary)
+                                    Text(reto.fotoBase64 != nil ? "📸 Foto guardada · Toca para ampliar" : "Añade la foto para completarlo")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if reto.fotoBase64 != nil {
+                                        retoConFotoEnVisor = reto
+                                    } else {
+                                        var copia = escapada
+                                        if let idx = copia.retosFoto.firstIndex(where: { $0.id == reto.id }) {
+                                            copia.retosFoto[idx].completado.toggle()
+                                            store.actualizarEscapada(copia)
+                                        }
+                                    }
+                                }
+                                
                                 Spacer()
-                                if reto.completado {
-                                    Text("¡Hecho!")
+                                
+                                Button {
+                                    retoParaFoto = reto
+                                } label: {
+                                    Label(reto.fotoBase64 == nil ? "Foto" : "Cambiar", systemImage: "photo.badge.plus")
                                         .font(.caption2.bold())
-                                        .foregroundStyle(.green)
                                 }
+                                .buttonStyle(.bordered)
                             }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                var copia = escapada
-                                if let idx = copia.retosFoto.firstIndex(where: { $0.id == reto.id }) {
-                                    copia.retosFoto[idx].completado.toggle()
-                                    store.actualizarEscapada(copia)
-                                }
-                            }
+                            .padding(.vertical, 2)
                         }
                         .onDelete { offsets in
                             var copia = escapada
@@ -2072,42 +2176,38 @@ struct DetalleEscapadaView: View {
             .sheet(isPresented: $mostrandoAgregarDocumento) {
                 AgregarDocumentoSheet(escapada: escapada)
             }
+            .sheet(isPresented: $mostrandoRuleta) {
+                RuletaDecisionesSheet(escapada: escapada)
+            }
             .sheet(item: $documentoSeleccionado) { doc in
                 VisorDocumentoSheet(documento: doc)
             }
-        }
-    }
-    
-    private func iconoCategoriaGasto(_ categoria: String) -> String {
-        switch categoria {
-        case "Comida": return "🍽️"
-        case "Transporte": return "🚆"
-        case "Alojamiento": return "🛏️"
-        case "Entradas": return "🎟️"
-        default: return "🛍️"
-        }
-    }
-}
-
-struct FilaEstrellasView: View {
-    let titulo: String
-    @Binding var puntuacion: Int
-    
-    var body: some View {
-        HStack {
-            Text(titulo)
-                .font(.caption.weight(.medium))
-            Spacer()
-            HStack(spacing: 4) {
-                ForEach(1...5, id: \.self) { estrella in
-                    Button {
-                        puntuacion = (puntuacion == estrella) ? 0 : estrella
-                    } label: {
-                        Image(systemName: estrella <= puntuacion ? "star.fill" : "star")
-                            .font(.subheadline)
-                            .foregroundStyle(estrella <= puntuacion ? Color.orange : Color.secondary.opacity(0.4))
+            .sheet(item: $retoConFotoEnVisor) { reto in
+                VisorFotoRetoSheet(reto: reto)
+            }
+            .photosPicker(
+                isPresented: Binding(
+                    get: { retoParaFoto != nil },
+                    set: { abierto in if !abierto { retoParaFoto = nil } }
+                ),
+                selection: $itemPickerReto,
+                matching: .images
+            )
+            .onChange(of: itemPickerReto) { _, nuevoItem in
+                guard let retoObjetivo = retoParaFoto, let item = nuevoItem else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let original = UIImage(data: data),
+                       let base64 = UtilidadImagen.comprimirParaNube(original) {
+                        var copia = escapada
+                        if let idx = copia.retosFoto.firstIndex(where: { $0.id == retoObjetivo.id }) {
+                            copia.retosFoto[idx].fotoBase64 = base64
+                            copia.retosFoto[idx].completado = true
+                            store.actualizarEscapada(copia)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    retoParaFoto = nil
+                    itemPickerReto = nil
                 }
             }
         }
@@ -2197,152 +2297,152 @@ struct AgregarDocumentoSheet: View {
     @State private var titulo = ""
     @State private var tipo = "QR / Entrada"
     @State private var codigoOUrl = ""
-    @State private var fotoSeleccionada: PhotosPickerItem? = nil
-    @State private var imagenComprimidaBase64: String? = nil
-    @State private var vistaPreviaUIImage: UIImage? = nil
-    
-    let tipos = ["QR / Entrada", "Billete", "Reserva", "Otro"]
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Datos de la entrada o documento") {
-                    TextField("Título (ej: Entradas Castillo de Praga)", text: $titulo)
-                    Picker("Tipo", selection: $tipo) {
-                        ForEach(tipos, id: \.self) { t in
-                            Text(t).tag(t)
-                        }
-                    }
-                    TextField("Código o enlace URL (opcional)", text: $codigoOUrl)
-                        .autocapitalization(.none)
-                }
-                
-                Section("Imagen o captura del código QR") {
-                    PhotosPicker(selection: $fotoSeleccionada, matching: .images) {
-                        Label(vistaPreviaUIImage == nil ? "Seleccionar captura QR o foto de galería" : "Cambiar imagen seleccionada", systemImage: "photo.on.rectangle")
-                    }
-                    
-                    if let img = vistaPreviaUIImage {
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 220)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                }
-            }
-            .navigationTitle("Añadir a la bóveda")
-            .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: fotoSeleccionada) { _, nuevoItem in
-                Task {
-                    if let data = try? await nuevoItem?.loadTransferable(type: Data.self),
-                       let original = UIImage(data: data) {
-                        let redimensionada = redimensionarImagen(original, maxLado: 900)
-                        vistaPreviaUIImage = redimensionada
-                        if let jpegData = redimensionada.jpegData(compressionQuality: 0.65) {
-                            imagenComprimidaBase64 = jpegData.base64EncodedString()
-                        }
-                    }
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Guardar") {
-                        let nuevoDoc = DocumentoBoveda(
-                            titulo: titulo.trimmingCharacters(in: .whitespacesAndNewlines),
-                            tipo: tipo,
-                            codigoOUrl: codigoOUrl.trimmingCharacters(in: .whitespacesAndNewlines),
-                            imagenBase64: imagenComprimidaBase64
-                        )
-                        var copia = escapada
-                        copia.documentos.append(nuevoDoc)
-                        store.actualizarEscapada(copia)
-                        dismiss()
-                    }
-                    .disabled(titulo.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-        }
-    }
-    
-    private func redimensionarImagen(_ image: UIImage, maxLado: CGFloat) -> UIImage {
-        let size = image.size
-        let ratio = min(maxLado / max(size.width, 1), maxLado / max(size.height, 1))
-        if ratio >= 1 { return image }
-        let newSize = CGSize(width: size.width * ratio, height: size.height * ratio)
-        let renderer = UIGraphicsImageRenderer(size: newSize)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
-        }
-    }
-}
-
-struct VisorDocumentoSheet: View {
+struct VisorFotoRetoSheet: View {
     @Environment(\.dismiss) var dismiss
-    let documento: DocumentoBoveda
-    @State private var copiado = false
+    let reto: RetoFotografico
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    Text(documento.tipo.uppercased())
-                        .font(.caption.bold())
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(Color.accentColor.opacity(0.12))
-                        .clipShape(Capsule())
-                    
-                    Text(documento.titulo)
-                        .font(.title2.bold())
-                        .multilineTextAlignment(.center)
-                    
-                    if let b64 = documento.imagenBase64,
-                       let data = Data(base64Encoded: b64),
-                       let uiImg = UIImage(data: data) {
-                        Image(uiImage: uiImg)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .shadow(radius: 6)
-                    }
-                    
-                    if !documento.codigoOUrl.isEmpty {
-                        if let url = URL(string: documento.codigoOUrl), documento.codigoOUrl.hasPrefix("http") {
-                            Link(destination: url) {
-                                Label("Abrir enlace de la entrada", systemImage: "safari")
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                        } else {
-                            Button {
-                                UIPasteboard.general.string = documento.codigoOUrl
-                                copiado = true
-                            } label: {
-                                HStack {
-                                    Text(documento.codigoOUrl)
-                                        .font(.headline.monospaced())
-                                    Image(systemName: copiado ? "checkmark" : "doc.on.doc")
-                                }
-                                .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
+            VStack(spacing: 20) {
+                Text("📸 RETO COMPLETADO")
+                    .font(.caption.bold())
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Color.green.opacity(0.15))
+                    .clipShape(Capsule())
+                
+                Text(reto.titulo)
+                    .font(.title3.bold())
+                    .multilineTextAlignment(.center)
+                
+                if let b64 = reto.fotoBase64,
+                   let data = Data(base64Encoded: b64),
+                   let uiImg = UIImage(data: data) {
+                    Image(uiImage: uiImg)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .shadow(radius: 8)
                 }
-                .padding()
+                Spacer()
             }
-            .navigationTitle("Bóveda")
+            .padding()
+            .navigationTitle("Foto del reto")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Listo") { dismiss() }
                 }
+            }
+        }
+    }
+}
+
+struct RuletaDecisionesSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let escapada: Escapada
+    
+    @State private var modo = "Planes del viaje"
+    @State private var opcionesPersonalizadas: [String] = ["Cenar tapas locales", "Paseo nocturno", "Cafetería con encanto", "Elegir tú"]
+    @State private var nuevaOpcion = ""
+    @State private var resultadoElegido: String? = nil
+    @State private var girando = false
+    
+    private var opcionesActuales: [String] {
+        switch modo {
+        case "Planes del viaje":
+            let delViaje = escapada.itinerario.map(\.nombreSitio) + escapada.ideas
+            return delViaje.isEmpty ? opcionesPersonalizadas : delViaje
+        case "¿Quién decide?":
+            return ["Decide Yo 🙋‍♂️", "Decide Tú 🙋‍♀️", "Piedra, papel o tijera ✌️", "Decide Yo 🙋‍♂️", "Decide Tú 🙋‍♀️"]
+        default:
+            return opcionesPersonalizadas
+        }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Picker("Modo", selection: $modo) {
+                    Text("Planes del viaje").tag("Planes del viaje")
+                    Text("¿Quién decide?").tag("¿Quién decide?")
+                    Text("Personalizada").tag("Personalizada")
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                
+                ZStack {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(height: 170)
+                    
+                    VStack(spacing: 10) {
+                        Text(girando ? "🎲 Girando..." : (resultadoElegido ?? "¿Listos para decidir?"))
+                            .font(.title2.bold())
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(resultadoElegido == nil ? .secondary : .primary)
+                            .padding(.horizontal)
+                        
+                        Button {
+                            girarRuleta()
+                        } label: {
+                            Label(girando ? "Eligiendo..." : "Girar ruleta", systemImage: "die.face.5.fill")
+                                .font(.headline)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(girando || opcionesActuales.isEmpty)
+                    }
+                }
+                .padding(.horizontal)
+                
+                List {
+                    if modo == "Personalizada" {
+                        Section("Añadir opción") {
+                            HStack {
+                                TextField("Ej: Restaurante italiano", text: $nuevaOpcion)
+                                Button("Añadir") {
+                                    let limpio = nuevaOpcion.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    guard !limpio.isEmpty else { return }
+                                    opcionesPersonalizadas.append(limpio)
+                                    nuevaOpcion = ""
+                                }
+                            }
+                        }
+                    }
+                    
+                    Section("Opciones en juego (\(opcionesActuales.count))") {
+                        ForEach(Array(opcionesActuales.enumerated()), id: \.offset) { _, op in
+                            Text("• \(op)")
+                                .font(.subheadline)
+                        }
+                    }
+                }
+            }
+            .padding(.top)
+            .navigationTitle("Ruleta en pareja")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Cerrar") { dismiss() }
+                }
+            }
+        }
+    }
+    
+    private func girarRuleta() {
+        let lista = opcionesActuales
+        guard !lista.isEmpty else { return }
+        girando = true
+        var pasos = 0
+        Timer.scheduledTimer(withTimeInterval: 0.09, repeats: true) { timer in
+            pasos += 1
+            resultadoElegido = lista.randomElement()
+            if pasos >= 14 {
+                timer.invalidate()
+                girando = false
             }
         }
     }
@@ -2706,36 +2806,274 @@ struct AgregarVueloSheet: View {
 struct YaVividoView: View {
     @EnvironmentObject var store: EscapadasStore
     
+    private var totalDiasJuntos: Int {
+        store.escapadasPasadas.reduce(0) { $0 + $1.totalDias }
+    }
+    
+    private var totalVuelos: Int {
+        store.escapadasPasadas.reduce(0) { $0 + $1.vuelos.count }
+    }
+    
+    private var totalInvertido: Double {
+        store.escapadasPasadas.reduce(0.0) { acc, esc in
+            acc + esc.gastos.reduce(0.0) { $0 + $1.importe }
+        }
+    }
+    
+    private var mejorValorada: Escapada? {
+        store.escapadasPasadas.max { a, b in
+            mediaValoracion(a) < mediaValoracion(b)
+        }
+    }
+    
+    private func mediaValoracion(_ esc: Escapada) -> Double {
+        let vals = [
+            esc.valoracion.experienciaCiudad,
+            esc.valoracion.museosCultura,
+            esc.valoracion.gastronomia,
+            esc.valoracion.alojamientoDescanso,
+            esc.valoracion.momentosJuntos
+        ].filter { $0 > 0 }
+        guard !vals.isEmpty else { return 0 }
+        return Double(vals.reduce(0, +)) / Double(vals.count)
+    }
+    
     var body: some View {
         List {
+            // Estadísticas de vuestra historia viajera (Idea #7)
+            Section {
+                VStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        StatMiniCard(valor: "\(store.escapadasPasadas.count)", etiqueta: "Escapadas", icono: "🗺️")
+                        StatMiniCard(valor: "\(totalDiasJuntos)", etiqueta: "Días juntos", icono: "🗓️")
+                        StatMiniCard(valor: "\(totalVuelos)", etiqueta: "Vuelos", icono: "✈️")
+                    }
+                    
+                    HStack {
+                        if let top = mejorValorada, mediaValoracion(top) > 0 {
+                            Label("Favorita: \(top.destino) (\(String(format: "%.1f", mediaValoracion(top)))★)", systemImage: "star.fill")
+                                .font(.caption.bold())
+                                .foregroundStyle(.orange)
+                        } else {
+                            Label("Puntuad vuestros viajes para ver vuestro top", systemImage: "star")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if totalInvertido > 0 {
+                            Text(String(format: "%.0f €", totalInvertido))
+                                .font(.caption.bold().monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("📊 Vuestra historia viajera")
+            }
+            
             if store.escapadasPasadas.isEmpty {
                 ContentUnavailableView("Aún no hay recuerdos", systemImage: "photo.on.rectangle.angled")
             } else {
-                ForEach(store.escapadasPasadas) { esc in
-                    NavigationLink(value: esc) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("\(esc.icono) \(esc.titulo)")
-                                    .font(.headline)
-                                Spacer()
-                                Text(esc.fechaInicio.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                Section("Recuerdos guardados") {
+                    ForEach(store.escapadasPasadas) { esc in
+                        NavigationLink(value: esc) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("\(esc.icono) \(esc.titulo)")
+                                        .font(.headline)
+                                    Spacer()
+                                    Text(esc.fechaInicio.formatted(date: .abbreviated, time: .omitted))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if !esc.recuerdo.isEmpty {
+                                    Text("\"\(esc.recuerdo)\"")
+                                        .font(.caption)
+                                        .italic()
+                                        .foregroundStyle(.secondary)
+                                }
                             }
-                            if !esc.recuerdo.isEmpty {
-                                Text("\"\(esc.recuerdo)\"")
-                                    .font(.caption)
-                                    .italic()
-                                    .foregroundStyle(.secondary)
-                            }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
             }
         }
         .navigationDestination(for: Escapada.self) { esc in
             DetalleEscapadaView(escapadaId: esc.id)
+        }
+    }
+}
+
+struct StatMiniCard: View {
+    let valor: String
+    let etiqueta: String
+    let icono: String
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(icono)
+                .font(.title3)
+            Text(valor)
+                .font(.headline.bold().monospacedDigit())
+            Text(etiqueta)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+struct WishlistView: View {
+    @EnvironmentObject var store: EscapadasStore
+    @State private var destinoNuevo = ""
+    @State private var notaNueva = ""
+    @State private var urlNueva = ""
+    @State private var iconoSeleccionado = "✨"
+    @State private var deseoAConvertir: DeseoViaje? = nil
+    @State private var fechaInicioConvertir = Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
+    @State private var fechaFinConvertir = Calendar.current.date(byAdding: .day, value: 33, to: Date()) ?? Date()
+    
+    let iconos = ["✨", "🏖️", "🏔️", "🌸", "🍋", "🍷", "🏙️", "🏕️"]
+    
+    var body: some View {
+        List {
+            Section("Añadir destino soñado") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(iconos, id: \.self) { em in
+                            Text(em)
+                                .font(.title2)
+                                .padding(6)
+                                .background(iconoSeleccionado == em ? Color.accentColor.opacity(0.2) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .onTapGesture { iconoSeleccionado = em }
+                        }
+                    }
+                }
+                
+                TextField("Destino (ej: Islandia, Bali, Dolomitas...)", text: $destinoNuevo)
+                TextField("¿Qué os gustaría hacer allí?", text: $notaNueva)
+                TextField("Enlace de TikTok, Instagram o blog (opcional)", text: $urlNueva)
+                    .keyboardType(.URL)
+                    .autocapitalization(.none)
+                
+                Button {
+                    let dest = destinoNuevo.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !dest.isEmpty else { return }
+                    var urlLimpia = urlNueva.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !urlLimpia.isEmpty && !urlLimpia.hasPrefix("http") {
+                        urlLimpia = "https://" + urlLimpia
+                    }
+                    let deseo = DeseoViaje(
+                        destino: dest,
+                        nota: notaNueva.trimmingCharacters(in: .whitespacesAndNewlines),
+                        urlReferencia: urlLimpia,
+                        icono: iconoSeleccionado
+                    )
+                    store.agregarDeseo(deseo)
+                    destinoNuevo = ""
+                    notaNueva = ""
+                    urlNueva = ""
+                } label: {
+                    Label("Guardar en nuestra Wishlist", systemImage: "sparkles")
+                        .font(.subheadline.bold())
+                }
+                .disabled(destinoNuevo.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            
+            Section("Vuestros próximos sueños (\(store.wishlist.count))") {
+                if store.wishlist.isEmpty {
+                    Text("Guardad aquí ideas de viajes que veáis para convertirlas en realidad cuando queráis.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(store.wishlist) { deseo in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) {
+                                Text(deseo.icono)
+                                    .font(.title2)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(deseo.destino)
+                                        .font(.headline)
+                                    if !deseo.nota.isEmpty {
+                                        Text(deseo.nota)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            
+                            HStack(spacing: 10) {
+                                Button {
+                                    deseoAConvertir = deseo
+                                } label: {
+                                    Label("Convertir en escapada", systemImage: "airplane.departure")
+                                        .font(.caption.bold())
+                                }
+                                .buttonStyle(.borderedProminent)
+                                
+                                if let url = URL(string: deseo.urlReferencia), !deseo.urlReferencia.isEmpty {
+                                    Link(destination: url) {
+                                        Label("Ver enlace", systemImage: "safari")
+                                            .font(.caption.bold())
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .onDelete { offsets in
+                        for idx in offsets {
+                            store.eliminarDeseo(store.wishlist[idx])
+                        }
+                    }
+                }
+            }
+        }
+        .sheet(item: $deseoAConvertir) { deseo in
+            NavigationStack {
+                Form {
+                    Section("Convertir «\(deseo.destino)» en viaje real") {
+                        DatePicker("Fecha ida", selection: $fechaInicioConvertir, displayedComponents: .date)
+                        DatePicker("Fecha vuelta", selection: $fechaFinConvertir, in: fechaInicioConvertir..., displayedComponents: .date)
+                    }
+                }
+                .navigationTitle("Programar escapada")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancelar") { deseoAConvertir = nil }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Crear escapada") {
+                            let nueva = Escapada(
+                                titulo: "Viaje a \(deseo.destino)",
+                                destino: deseo.destino,
+                                fechaInicio: fechaInicioConvertir,
+                                fechaFin: fechaFinConvertir,
+                                icono: deseo.icono,
+                                tieneVuelos: true,
+                                esSorpresa: false,
+                                pistaSorpresa: "",
+                                recuerdo: "",
+                                vuelos: [],
+                                checklist: [ItemChecklist(texto: "Revisar documentación", completado: false, asignadoA: "Ambos")],
+                                ideas: deseo.nota.isEmpty ? [] : [deseo.nota]
+                            )
+                            store.agregarEscapada(nueva)
+                            store.eliminarDeseo(deseo)
+                            deseoAConvertir = nil
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -2843,8 +3181,12 @@ struct AgregarGastoSheet: View {
                             .keyboardType(.decimalPad)
                         
                         Picker("Divisa", selection: $monedaSeleccionada) {
-                            ForEach(ServicioDivisas.monedasDisponibles, id: \.codigo) { m in
-                                Text(m.codigo).tag(m.codigo)
+                            ForEach(["Europa", "Norteamérica", "Latinoamérica", "Asia", "Otros"], id: \.self) { region in
+                                Section(region) {
+                                    ForEach(ServicioDivisas.monedasDisponibles.filter { $0.region == region }) { m in
+                                        Text("\(m.codigo) · \(m.nombre)").tag(m.codigo)
+                                    }
+                                }
                             }
                         }
                         .pickerStyle(.menu)
