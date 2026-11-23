@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.pareja
   deploymentTarget:
     iOS: "17.0"
+  xcodeVersion: "16.4"
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
@@ -23,10 +24,10 @@ targets:
     type: application
     platform: iOS
     sources:
-      - NuestrasEscapadasApp.swift
+      - path: NuestrasEscapadasApp.swift
     resources:
       - path: GoogleService-Info.plist
-        optional: true
+        buildPhase: resources
     dependencies:
       - package: Firebase
         product: FirebaseCore
