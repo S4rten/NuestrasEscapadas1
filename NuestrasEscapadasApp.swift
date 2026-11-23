@@ -198,12 +198,15 @@ enum BuscadorVuelosWeb {
         let infoAerolinea = datosAerolinea(prefijo: prefijo)
         let webFlightAware = code.count >= 4 ? "https://es.flightaware.com/live/flight/\(code)" : "https://www.flightradar24.com"
         
-        // 1. Consulta en vivo a la web pública de estado de vuelos (FlightRadar / AeroDataBox / FlightAware)
-        if code.count >= 4, let online = await consultarWebEstadoVuelo(codigoVuelo: code, aerolineaDefault: infoAerolinea.nombre, urlReservaDefault: infoAerolinea.url, webEstado: webFlightAware) {
+        if code.count >= 4, let online = await consultarWebEstadoVuelo(
+            codigoVuelo: code,
+            aerolineaDefault: infoAerolinea.nombre,
+            urlReservaDefault: infoAerolinea.url,
+            webEstado: webFlightAware
+        ) {
             return online
         }
         
-        // 2. Si hay código de reserva (localizador) o número de vuelo con catálogo de rutas conocidas
         if let rutaConocida = catalogoRutas()[code] {
             return ResultadoBusquedaVuelo(
                 aerolinea: infoAerolinea.nombre,
@@ -217,7 +220,6 @@ enum BuscadorVuelosWeb {
             )
         }
         
-        // 3. Deducción inteligente combinando código de reserva / aerolínea + destino de la escapada
         let iataDestino = iataDesdeTexto(destinoViaje)
         let origenCalc = (trayecto == "Vuelta") ? (iataDestino.isEmpty ? "PRG" : iataDestino) : "MAD"
         let destinoCalc = (trayecto == "Vuelta") ? "MAD" : iataDestino
@@ -265,30 +267,32 @@ enum BuscadorVuelosWeb {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
             
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let resp = json["response"] as? [String: Any],
-               let flightroute = resp["flightroute"] as? [String: Any] {
-                
-                let originDict = flightroute["origin"] as? [String: Any]
-                let destDict = flightroute["destination"] as? [String: Any]
-                let airlineDict = flightroute["airline"] as? [String: Any]
-                
-                let iataOrigen = (originDict?["iata_code"] as? String) ?? ""
-                let iataDestino = (destDict?["iata_code"] as? String) ?? ""
-                let nombreAerolinea = (airlineDict?["name"] as? String) ?? aerolineaDefault
-                
-                if !iataOrigen.isEmpty && !iataDestino.isEmpty {
-                    return ResultadoBusquedaVuelo(
-                        aerolinea: nombreAerolinea,
-                        origen: iataOrigen.uppercased(),
-                        destino: iataDestino.uppercased(),
-                        terminal: "",
-                        duracionMin: 150,
-                        urlReserva: urlReservaDefault,
-                        urlEstadoWeb: webEstado,
-                        fuente: "Web de vuelos en vivo"
-                    )
-                }
+            let parsedObject = try JSONSerialization.jsonObject(with: data)
+            guard let json = parsedObject as? [String: Any],
+                  let resp = json["response"] as? [String: Any],
+                  let flightroute = resp["flightroute"] as? [String: Any] else {
+                return nil
+            }
+            
+            let originDict = flightroute["origin"] as? [String: Any]
+            let destDict = flightroute["destination"] as? [String: Any]
+            let airlineDict = flightroute["airline"] as? [String: Any]
+            
+            let iataOrigen = (originDict?["iata_code"] as? String) ?? ""
+            let iataDestino = (destDict?["iata_code"] as? String) ?? ""
+            let nombreAerolinea = (airlineDict?["name"] as? String) ?? aerolineaDefault
+            
+            if !iataOrigen.isEmpty && !iataDestino.isEmpty {
+                return ResultadoBusquedaVuelo(
+                    aerolinea: nombreAerolinea,
+                    origen: iataOrigen.uppercased(),
+                    destino: iataDestino.uppercased(),
+                    terminal: "",
+                    duracionMin: 150,
+                    urlReserva: urlReservaDefault,
+                    urlEstadoWeb: webEstado,
+                    fuente: "Web de vuelos en vivo"
+                )
             }
         } catch {
             return nil
