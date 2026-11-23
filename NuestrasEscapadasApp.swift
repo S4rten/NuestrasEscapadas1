@@ -1,10 +1,35 @@
 import SwiftUI
 import FirebaseCore
 import FirebaseFirestore
+import MapKit
 
 // ============================================================================
 // 1. MODELO DE DATOS (Compatible con Codable de Firestore)
 // ============================================================================
+
+struct AlojamientoInfo: Codable, Hashable {
+    var nombre: String = ""
+    var direccion: String = ""
+    var horaCheckIn: String = "15:00"
+    var horaCheckOut: String = "11:00"
+    var codigoReserva: String = ""
+    var urlReserva: String = ""
+    
+    var tieneDatos: Bool {
+        !nombre.trimmingCharacters(in: .whitespaces).isEmpty ||
+        !direccion.trimmingCharacters(in: .whitespaces).isEmpty ||
+        !codigoReserva.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
+struct GastoViaje: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var concepto: String
+    var importe: Double
+    var pagadoPor: String         // "Yo" o "Tú"
+    var categoria: String         // "Comida", "Transporte", "Alojamiento", "Entradas", "Otros"
+    var fecha: Date = Date()
+}
 
 struct Vuelo: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
@@ -56,6 +81,8 @@ struct Escapada: Identifiable, Codable, Hashable {
     var recuerdo: String
     var momentoFavorito: String = ""
     var valoracion: ValoracionViaje = ValoracionViaje()
+    var alojamiento: AlojamientoInfo = AlojamientoInfo()
+    var gastos: [GastoViaje] = []
     var vuelos: [Vuelo]
     var checklist: [ItemChecklist]
     var itinerario: [ActividadDia] = []
@@ -110,6 +137,8 @@ struct Escapada: Identifiable, Codable, Hashable {
         recuerdo: String,
         momentoFavorito: String = "",
         valoracion: ValoracionViaje = ValoracionViaje(),
+        alojamiento: AlojamientoInfo = AlojamientoInfo(),
+        gastos: [GastoViaje] = [],
         vuelos: [Vuelo],
         checklist: [ItemChecklist],
         itinerario: [ActividadDia] = [],
@@ -128,6 +157,8 @@ struct Escapada: Identifiable, Codable, Hashable {
         self.recuerdo = recuerdo
         self.momentoFavorito = momentoFavorito
         self.valoracion = valoracion
+        self.alojamiento = alojamiento
+        self.gastos = gastos
         self.vuelos = vuelos
         self.checklist = checklist
         self.itinerario = itinerario
@@ -136,7 +167,7 @@ struct Escapada: Identifiable, Codable, Hashable {
     
     enum CodingKeys: String, CodingKey {
         case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, esSorpresa, pistaSorpresa
-        case diasRevelarSorpresaAntes, recuerdo, momentoFavorito, valoracion, vuelos, checklist, itinerario, ideas
+        case diasRevelarSorpresaAntes, recuerdo, momentoFavorito, valoracion, alojamiento, gastos, vuelos, checklist, itinerario, ideas
     }
     
     init(from decoder: Decoder) throws {
@@ -155,6 +186,8 @@ struct Escapada: Identifiable, Codable, Hashable {
         recuerdo = try c.decodeIfPresent(String.self, forKey: .recuerdo) ?? ""
         momentoFavorito = try c.decodeIfPresent(String.self, forKey: .momentoFavorito) ?? ""
         valoracion = try c.decodeIfPresent(ValoracionViaje.self, forKey: .valoracion) ?? ValoracionViaje()
+        alojamiento = try c.decodeIfPresent(AlojamientoInfo.self, forKey: .alojamiento) ?? AlojamientoInfo()
+        gastos = try c.decodeIfPresent([GastoViaje].self, forKey: .gastos) ?? []
         checklist = try c.decodeIfPresent([ItemChecklist].self, forKey: .checklist) ?? []
         itinerario = try c.decodeIfPresent([ActividadDia].self, forKey: .itinerario) ?? []
         ideas = try c.decodeIfPresent([String].self, forKey: .ideas) ?? []
@@ -682,6 +715,14 @@ struct ContentView: View {
             }
             
             NavigationStack {
+                MapaDestinosView()
+                    .navigationTitle("Nuestro Mapa")
+            }
+            .tabItem {
+                Label("Mapa", systemImage: "map.fill")
+            }
+            
+            NavigationStack {
                 YaVividoView()
                     .navigationTitle("Ya vivido")
             }
@@ -921,6 +962,9 @@ struct DetalleEscapadaView: View {
     @State private var nuevoItemAsignado = "Ambos"
     @State private var nuevaIdeaTexto = ""
     @State private var mostrandoAgregarVuelo = false
+    @State private var mostrandoEditarAlojamiento = false
+    @State private var mostrandoAgregarGasto = false
+    @State private var codigoAlojamientoCopiado = false
     
     private var escapadaActual: Escapada? {
         store.escapadas.first(where: { $0.id == escapadaId })
@@ -1136,6 +1180,93 @@ struct DetalleEscapadaView: View {
                             }
                         }
                     }
+                    
+                    // Sección Alojamiento
+                    Section {
+                        if escapada.alojamiento.tieneDatos {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(alignment: .top) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(escapada.alojamiento.nombre.isEmpty ? "Alojamiento reservado" : escapada.alojamiento.nombre)
+                                            .font(.headline)
+                                        if !escapada.alojamiento.direccion.isEmpty {
+                                            Text("📍 \(escapada.alojamiento.direccion)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    Button("Editar") {
+                                        mostrandoEditarAlojamiento = true
+                                    }
+                                    .font(.caption.bold())
+                                }
+                                
+                                HStack(spacing: 12) {
+                                    Label("Check-in: \(escapada.alojamiento.horaCheckIn)", systemImage: "arrow.down.right.circle")
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                        .clipShape(Capsule())
+                                    
+                                    Label("Check-out: \(escapada.alojamiento.horaCheckOut)", systemImage: "arrow.up.right.circle")
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                        .clipShape(Capsule())
+                                }
+                                
+                                HStack(spacing: 8) {
+                                    if !escapada.alojamiento.codigoReserva.isEmpty {
+                                        Button {
+                                            UIPasteboard.general.string = escapada.alojamiento.codigoReserva
+                                            codigoAlojamientoCopiado = true
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                                codigoAlojamientoCopiado = false
+                                            }
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Text("Ref: \(escapada.alojamiento.codigoReserva)")
+                                                    .font(.caption.monospaced().bold())
+                                                Image(systemName: codigoAlojamientoCopiado ? "checkmark" : "doc.on.doc")
+                                                    .font(.caption2)
+                                            }
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                    
+                                    let queryMapa = (escapada.alojamiento.direccion.isEmpty ? "\(escapada.alojamiento.nombre) \(escapada.destino)" : escapada.alojamiento.direccion)
+                                        .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                                    if let mapUrl = URL(string: "http://maps.apple.com/?q=\(queryMapa)"), !queryMapa.isEmpty {
+                                        Link(destination: mapUrl) {
+                                            Label("Cómo llegar", systemImage: "map.fill")
+                                                .font(.caption.bold())
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                    }
+                                    
+                                    if let reservaUrl = URL(string: escapada.alojamiento.urlReserva), !escapada.alojamiento.urlReserva.isEmpty {
+                                        Link(destination: reservaUrl) {
+                                            Image(systemName: "safari")
+                                                .font(.caption.bold())
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        } else {
+                            Button {
+                                mostrandoEditarAlojamiento = true
+                            } label: {
+                                Label("Añadir hotel, apartamento o alojamiento", systemImage: "bed.double.fill")
+                            }
+                        }
+                    } header: {
+                        Text("Alojamiento")
+                    }
                 } else {
                     Section {
                         HStack(spacing: 12) {
@@ -1250,6 +1381,87 @@ struct DetalleEscapadaView: View {
                     }
                 } header: {
                     Text("Notas rápidas e ideas")
+                }
+                
+                // Sección Gastos Compartidos
+                Section {
+                    let totalGastos = escapada.gastos.reduce(0) { $0 + $1.importe }
+                    let pagadoYo = escapada.gastos.filter { $0.pagadoPor == "Yo" }.reduce(0) { $0 + $1.importe }
+                    let pagadoTu = escapada.gastos.filter { $0.pagadoPor == "Tú" }.reduce(0) { $0 + $1.importe }
+                    let mitad = totalGastos / 2.0
+                    let diferencia = pagadoYo - mitad
+                    
+                    VStack(spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("TOTAL DEL VIAJE")
+                                    .font(.caption2.bold())
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "%.2f €", totalGastos))
+                                    .font(.title2.bold().monospacedDigit())
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("Yo: \(String(format: "%.2f €", pagadoYo))")
+                                    .font(.caption.weight(.medium))
+                                Text("Tú: \(String(format: "%.2f €", pagadoTu))")
+                                    .font(.caption.weight(.medium))
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+                        
+                        if totalGastos > 0 {
+                            HStack {
+                                Image(systemName: abs(diferencia) < 0.01 ? "checkmark.seal.fill" : "arrow.left.arrow.right.circle.fill")
+                                    .foregroundStyle(abs(diferencia) < 0.01 ? .green : Color.accentColor)
+                                if abs(diferencia) < 0.01 {
+                                    Text("¡Estáis en paz al 50%!")
+                                        .font(.caption.bold())
+                                } else if diferencia > 0 {
+                                    Text("Tú le debes \(String(format: "%.2f €", diferencia)) a Yo")
+                                        .font(.caption.bold())
+                                } else {
+                                    Text("Yo le debe \(String(format: "%.2f €", abs(diferencia))) a Tú")
+                                        .font(.caption.bold())
+                                }
+                                Spacer()
+                            }
+                            .padding(8)
+                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    ForEach(escapada.gastos) { gasto in
+                        HStack(spacing: 10) {
+                            Text(iconoCategoriaGasto(gasto.categoria))
+                                .font(.title3)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(gasto.concepto)
+                                    .font(.subheadline.weight(.medium))
+                                Text("\(gasto.categoria) · Pagó \(gasto.pagadoPor)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(String(format: "%.2f €", gasto.importe))
+                                .font(.subheadline.bold().monospacedDigit())
+                        }
+                    }
+                    .onDelete { offsets in
+                        var copia = escapada
+                        copia.gastos.remove(atOffsets: offsets)
+                        store.actualizarEscapada(copia)
+                    }
+                    
+                    Button {
+                        mostrandoAgregarGasto = true
+                    } label: {
+                        Label("Añadir gasto compartido", systemImage: "eurosign.circle.fill")
+                    }
+                } header: {
+                    Text("Gastos compartidos")
                 }
                 
                 // Sección Recuerdo Ampliada + Valoración (Solo visible cuando la escapada ya ha finalizado)
@@ -1387,6 +1599,22 @@ struct DetalleEscapadaView: View {
             .sheet(isPresented: $mostrandoAgregarVuelo) {
                 AgregarVueloSheet(escapada: escapada)
             }
+            .sheet(isPresented: $mostrandoEditarAlojamiento) {
+                EditarAlojamientoSheet(escapada: escapada)
+            }
+            .sheet(isPresented: $mostrandoAgregarGasto) {
+                AgregarGastoSheet(escapada: escapada)
+            }
+        }
+    }
+    
+    private func iconoCategoriaGasto(_ categoria: String) -> String {
+        switch categoria {
+        case "Comida": return "🍽️"
+        case "Transporte": return "🚆"
+        case "Alojamiento": return "🛏️"
+        case "Entradas": return "🎟️"
+        default: return "🛍️"
         }
     }
 }
@@ -1880,6 +2108,317 @@ struct YaVividoView: View {
         .navigationDestination(for: Escapada.self) { esc in
             DetalleEscapadaView(escapadaId: esc.id)
         }
+    }
+}
+
+struct EditarAlojamientoSheet: View {
+    @EnvironmentObject var store: EscapadasStore
+    @Environment(\.dismiss) var dismiss
+    let escapada: Escapada
+    
+    @State private var nombre = ""
+    @State private var direccion = ""
+    @State private var horaCheckIn = "15:00"
+    @State private var horaCheckOut = "11:00"
+    @State private var codigoReserva = ""
+    @State private var urlReserva = ""
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Datos del alojamiento") {
+                    TextField("Nombre del hotel o apartamento", text: $nombre)
+                    TextField("Dirección exacta o zona", text: $direccion)
+                }
+                
+                Section("Horarios y reserva") {
+                    TextField("Hora Check-in (ej: 15:00)", text: $horaCheckIn)
+                    TextField("Hora Check-out (ej: 11:00)", text: $horaCheckOut)
+                    TextField("Código / Localizador de reserva", text: $codigoReserva)
+                        .autocapitalization(.allCharacters)
+                    TextField("Enlace de la reserva (Booking, Airbnb...)", text: $urlReserva)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                }
+            }
+            .navigationTitle("Alojamiento")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                nombre = escapada.alojamiento.nombre
+                direccion = escapada.alojamiento.direccion
+                horaCheckIn = escapada.alojamiento.horaCheckIn
+                horaCheckOut = escapada.alojamiento.horaCheckOut
+                codigoReserva = escapada.alojamiento.codigoReserva
+                urlReserva = escapada.alojamiento.urlReserva
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar") {
+                        var urlLimpia = urlReserva.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !urlLimpia.isEmpty && !urlLimpia.hasPrefix("http") {
+                            urlLimpia = "https://" + urlLimpia
+                        }
+                        var copia = escapada
+                        copia.alojamiento = AlojamientoInfo(
+                            nombre: nombre.trimmingCharacters(in: .whitespacesAndNewlines),
+                            direccion: direccion.trimmingCharacters(in: .whitespacesAndNewlines),
+                            horaCheckIn: horaCheckIn.trimmingCharacters(in: .whitespacesAndNewlines),
+                            horaCheckOut: horaCheckOut.trimmingCharacters(in: .whitespacesAndNewlines),
+                            codigoReserva: codigoReserva.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+                            urlReserva: urlLimpia
+                        )
+                        store.actualizarEscapada(copia)
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct AgregarGastoSheet: View {
+    @EnvironmentObject var store: EscapadasStore
+    @Environment(\.dismiss) var dismiss
+    let escapada: Escapada
+    
+    @State private var concepto = ""
+    @State private var importeTexto = ""
+    @State private var pagadoPor = "Yo"
+    @State private var categoria = "Comida"
+    
+    let categorias = ["Comida", "Transporte", "Alojamiento", "Entradas", "Otros"]
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Detalle del gasto") {
+                    TextField("Concepto (ej: Cena en el centro)", text: $concepto)
+                    TextField("Importe en € (ej: 42,50)", text: $importeTexto)
+                        .keyboardType(.decimalPad)
+                }
+                
+                Section("Reparto y categoría") {
+                    Picker("¿Quién pagó?", selection: $pagadoPor) {
+                        Text("Yo").tag("Yo")
+                        Text("Tú").tag("Tú")
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    Picker("Categoría", selection: $categoria) {
+                        ForEach(categorias, id: \.self) { cat in
+                            Text(cat).tag(cat)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Nuevo gasto")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Añadir") {
+                        let limpio = importeTexto.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)
+                        guard let valor = Double(limpio), valor > 0 else { return }
+                        let nuevoGasto = GastoViaje(
+                            concepto: concepto.trimmingCharacters(in: .whitespacesAndNewlines),
+                            importe: valor,
+                            pagadoPor: pagadoPor,
+                            categoria: categoria
+                        )
+                        var copia = escapada
+                        copia.gastos.append(nuevoGasto)
+                        store.actualizarEscapada(copia)
+                        dismiss()
+                    }
+                    .disabled(concepto.trimmingCharacters(in: .whitespaces).isEmpty || (Double(importeTexto.replacingOccurrences(of: ",", with: ".")) ?? 0) <= 0)
+                }
+            }
+        }
+    }
+}
+
+struct PinDestinoMapa: Identifiable {
+    let id: UUID
+    let titulo: String
+    let destino: String
+    let icono: String
+    let yaVivida: Bool
+    let coordenada: CLLocationCoordinate2D
+}
+
+struct MapaDestinosView: View {
+    @EnvironmentObject var store: EscapadasStore
+    @State private var pines: [PinDestinoMapa] = []
+    @State private var posicionCamara: MapCameraPosition = .region(
+        MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 44.5, longitude: 6.0),
+            span: MKCoordinateSpan(latitudeDelta: 28, longitudeDelta: 28)
+        )
+    )
+    
+    private var escapadasVisibles: [Escapada] {
+        store.escapadas.filter { !($0.esSorpresa && !$0.sorpresaDesbloqueada) }
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Map(position: $posicionCamara) {
+                ForEach(pines) { pin in
+                    Annotation(pin.destino, coordinate: pin.coordenada) {
+                        VStack(spacing: 2) {
+                            Text(pin.icono)
+                                .font(.title3)
+                                .padding(7)
+                                .background(pin.yaVivida ? Color.accentColor : Color.orange)
+                                .clipShape(Circle())
+                                .shadow(radius: 3)
+                            Text(pin.destino)
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+            .frame(height: 360)
+            
+            List {
+                Section {
+                    HStack {
+                        Label("\(pines.filter { $0.yaVivida }.count) vividos", systemImage: "heart.fill")
+                            .font(.caption.bold())
+                            .foregroundStyle(Color.accentColor)
+                        Spacer()
+                        Label("\(pines.filter { !$0.yaVivida }.count) próximos", systemImage: "airplane")
+                            .font(.caption.bold())
+                            .foregroundStyle(.orange)
+                    }
+                    
+                    if escapadasVisibles.isEmpty {
+                        Text("Añade una escapada para ver vuestros destinos en el mapa.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(escapadasVisibles) { esc in
+                            NavigationLink(value: esc) {
+                                HStack(spacing: 12) {
+                                    Text(esc.icono)
+                                        .font(.title2)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(esc.destino)
+                                            .font(.subheadline.bold())
+                                        Text("\(esc.titulo) · \(esc.fechaInicio.formatted(date: .abbreviated, time: .omitted))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(esc.yaVivida ? "Vivido" : "Próximo")
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background((esc.yaVivida ? Color.accentColor : Color.orange).opacity(0.15))
+                                        .foregroundStyle(esc.yaVivida ? Color.accentColor : Color.orange)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Destinos desbloqueados")
+                }
+            }
+        }
+        .navigationDestination(for: Escapada.self) { esc in
+            DetalleEscapadaView(escapadaId: esc.id)
+        }
+        .task(id: escapadasVisibles.map(\.destino).joined(separator: "|")) {
+            await geocodificarDestinos()
+        }
+    }
+    
+    private func geocodificarDestinos() async {
+        var nuevosPines: [PinDestinoMapa] = []
+        let geocoder = CLGeocoder()
+        
+        for esc in escapadasVisibles {
+            let textoBusqueda = esc.destino.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !textoBusqueda.isEmpty else { continue }
+            
+            if let coordRapida = coordenadaConocida(textoBusqueda) {
+                nuevosPines.append(
+                    PinDestinoMapa(
+                        id: esc.id,
+                        titulo: esc.titulo,
+                        destino: esc.destino,
+                        icono: esc.icono,
+                        yaVivida: esc.yaVivida,
+                        coordenada: coordRapida
+                    )
+                )
+                continue
+            }
+            
+            if let placemarks = try? await geocoder.geocodeAddressString(textoBusqueda),
+               let loc = placemarks.first?.location {
+                nuevosPines.append(
+                    PinDestinoMapa(
+                        id: esc.id,
+                        titulo: esc.titulo,
+                        destino: esc.destino,
+                        icono: esc.icono,
+                        yaVivida: esc.yaVivida,
+                        coordenada: loc.coordinate
+                    )
+                )
+            }
+        }
+        
+        pines = nuevosPines
+        if let primero = nuevosPines.first {
+            posicionCamara = .region(
+                MKCoordinateRegion(
+                    center: primero.coordenada,
+                    span: MKCoordinateSpan(latitudeDelta: 18, longitudeDelta: 18)
+                )
+            )
+        }
+    }
+    
+    private func coordenadaConocida(_ texto: String) -> CLLocationCoordinate2D? {
+        let lower = texto.lowercased()
+        let catalogo: [(String, Double, Double)] = [
+            ("praga", 50.0755, 14.4378),
+            ("jerte", 40.2236, -5.7519),
+            ("brihuega", 40.7606, -2.8692),
+            ("madrid", 40.4168, -3.7038),
+            ("barcelona", 41.3874, 2.1686),
+            ("roma", 41.9028, 12.4964),
+            ("paris", 48.8566, 2.3522),
+            ("parís", 48.8566, 2.3522),
+            ("londres", 51.5072, -0.1276),
+            ("lisboa", 38.7223, -9.1393),
+            ("oporto", 41.1579, -8.6291),
+            ("cracovia", 50.0647, 19.9450),
+            ("amsterdam", 52.3676, 4.9041),
+            ("ámsterdam", 52.3676, 4.9041),
+            ("viena", 48.2082, 16.3738),
+            ("budapest", 47.4979, 19.0402),
+            ("sevilla", 37.3891, -5.9845),
+            ("granada", 37.1773, -3.5986),
+            ("valencia", 39.4699, -0.3763),
+            ("mallorca", 39.6953, 3.0176)
+        ]
+        for (clave, lat, lon) in catalogo where lower.contains(clave) {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }
+        return nil
     }
 }
 
