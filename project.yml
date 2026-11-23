@@ -32,4 +32,3 @@ targets:
         product: FirebaseCore
       - package: Firebase
         product: FirebaseFirestore
-      - NuestrasEscapadasApp.swift
