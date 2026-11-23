@@ -19,6 +19,9 @@ jobs:
       - name: Generar proyecto de Xcode (.xcodeproj)
         run: xcodegen generate
 
+      - name: Resolver paquetes de Firebase
+        run: xcodebuild -resolvePackageDependencies -project NuestrasEscapadas.xcodeproj -scheme NuestrasEscapadas
+
       - name: Compilar aplicacion sin firma de desarrollador
         run: |
           xcodebuild clean build \
