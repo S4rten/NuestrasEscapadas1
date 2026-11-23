@@ -438,198 +438,30 @@ class EscapadasStore: ObservableObject {
         let coleccion = db.collection("parejas").document(limpio).collection("escapadas")
         
         listener = coleccion.addSnapshotListener { [weak self] snapshot, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                self.estadoNube = "Error: \(error.localizedDescription)"
-                return
-            }
-            
-            guard let documents = snapshot?.documents else { return }
-            self.estadoNube = "En vivo"
-            
-            let remotas: [Escapada] = documents.compactMap { doc in
-                try? doc.data(as: Escapada.self)
-            }
-            
-            if self.primeraCargaSala && remotas.isEmpty {
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    self.estadoNube = "Error: \(error.localizedDescription)"
+                    return
+                }
+                
+                guard let documents = snapshot?.documents else { return }
+                self.estadoNube = "En vivo"
+                
+                let remotas: [Escapada] = documents.compactMap { doc in
+                    try? doc.data(as: Escapada.self)
+                }
+                
+                if self.primeraCargaSala && remotas.isEmpty {
+                    self.primeraCargaSala = false
+                    self.cargarEjemplosIniciales(subirANube: true)
+                    return
+                }
+                
                 self.primeraCargaSala = false
-                self.cargarEjemplosIniciales(subirANube: true)
-                return
-            }
-            
-            self.primeraCargaSala = false
-            self.escapadas = remotas
-            self.guardarCopiaLocal()
-        }
-    }
-    
-    var proximasEscapadas: [Escapada] {
-        escapadas
-            .filter { !$0.yaVivida }
-            .sorted { $0.fechaInicio < $1.fechaInicio }
-    }
-    
-    var escapadasPasadas: [Escapada] {
-        escapadas
-            .filter { $0.yaVivida }
-            .sorted { $0.fechaInicio > $1.fechaInicio }
-    }
-    
-    func agregarEscapada(_ nueva: Escapada) {
-        escapadas.append(nueva)
-        guardarCopiaLocal()
-        guardarEnFirestore(nueva)
-    }
-    
-    func actualizarEscapada(_ actualizada: Escapada) {
-        if let idx = escapadas.firstIndex(where: { $0.id == actualizada.id }) {
-            escapadas[idx] = actualizada
-            guardarCopiaLocal()
-            guardarEnFirestore(actualizada)
-        }
-    }
-    
-    func eliminarEscapada(_ escapada: Escapada) {
-        escapadas.removeAll { $0.id == escapada.id }
-        guardarCopiaLocal()
-        
-        guard let db = db else { return }
-        db.collection("parejas")
-            .document(codigoPareja)
-            .collection("escapadas")
-            .document(escapada.id.uuidString)
-            .delete()
-    }
-    
-    private func guardarEnFirestore(_ escapada: Escapada) {
-        guard let db = db else { return }
-        do {
-            try db.collection("parejas")
-                .document(codigoPareja)
-                .collection("escapadas")
-                .document(escapada.id.uuidString)
-                .setData(from: escapada, merge: true)
-        } catch {
-            estadoNube = "Error al guardar"
-        }
-    }
-    
-    private func guardarCopiaLocal() {
-        if let encoded = try? JSONEncoder().encode(escapadas) {
-            UserDefaults.standard.set(encoded, forKey: localBackupKey)
-        }
-    }
-    
-    private func cargarCopiaLocal() {
-        if let data = UserDefaults.standard.data(forKey: localBackupKey),
-           let decoded = try? JSONDecoder().decode([Escapada].self, from: data) {
-            escapadas = decoded
-        }
-    }
-    
-    func cargarEjemplosIniciales(subirANube: Bool = true) {
-        let hoy = Date()
-        let salidaPraga = Calendar.current.date(byAdding: .day, value: 18, to: hoy) ?? hoy
-        let vueltaPraga = Calendar.current.date(byAdding: .day, value: 22, to: hoy) ?? hoy
-        let fechaSorpresa = Calendar.current.date(byAdding: .day, value: 45, to: hoy) ?? hoy
-        let fechaPasada = Calendar.current.date(byAdding: .day, value: -25, to: hoy) ?? hoy
-        
-        let iniciales = [
-            Escapada(
-                titulo: "Escapada de invierno",
-                destino: "Praga y montañas",
-                fechaInicio: salidaPraga,
-                fechaFin: vueltaPraga,
-                icono: "✈️",
-                tieneVuelos: true,
-                esSorpresa: false,
-                pistaSorpresa: "",
-                recuerdo: "",
-                vuelos: [
-                    Vuelo(
-                        trayecto: "Ida",
-                        origen: "MAD",
-                        destino: "PRG",
-                        fechaHoraSalida: salidaPraga,
-                        fechaHoraLlegada: Calendar.current.date(byAdding: .hour, value: 3, to: salidaPraga) ?? salidaPraga,
-                        aerolinea: "Iberia",
-                        numeroVuelo: "IB3140",
-                        localizador: "K8M9LP",
-                        terminalPuerta: "Terminal 4",
-                        urlReserva: "https://www.iberia.com/es/gestion-reservas/"
-                    ),
-                    Vuelo(
-                        trayecto: "Vuelta",
-                        origen: "KRK",
-                        destino: "MAD",
-                        fechaHoraSalida: vueltaPraga,
-                        fechaHoraLlegada: Calendar.current.date(byAdding: .hour, value: 3, to: vueltaPraga) ?? vueltaPraga,
-                        aerolinea: "Ryanair",
-                        numeroVuelo: "FR2418",
-                        localizador: "X9P2TR",
-                        terminalPuerta: "",
-                        urlReserva: "https://www.ryanair.com"
-                    )
-                ],
-                checklist: [
-                    ItemChecklist(texto: "DNI / Pasaportes en vigor", completado: true, asignadoA: "Ambos"),
-                    ItemChecklist(texto: "Ropa térmica y guantes", completado: true, asignadoA: "Ambos"),
-                    ItemChecklist(texto: "Baterías portátiles", completado: false, asignadoA: "Yo")
-                ],
-                itinerario: [
-                    ActividadDia(diaIndex: 1, nombreSitio: "Puente de Carlos y Ciudad Vieja", urlSitio: "https://www.prague.eu"),
-                    ActividadDia(diaIndex: 2, nombreSitio: "Castillo de Praga y Callejón del Oro", urlSitio: "https://www.hrad.cz"),
-                    ActividadDia(diaIndex: 3, nombreSitio: "Museo Nacional y cena tradicional", urlSitio: "")
-                ],
-                ideas: ["Probar trdelník caliente", "Mirador de Letná al atardecer"]
-            ),
-            Escapada(
-                titulo: "Fin de semana secreto",
-                destino: "Cabaña en el Valle del Jerte",
-                fechaInicio: fechaSorpresa,
-                fechaFin: Calendar.current.date(byAdding: .day, value: 2, to: fechaSorpresa) ?? fechaSorpresa,
-                icono: "🎁",
-                tieneVuelos: false,
-                esSorpresa: true,
-                pistaSorpresa: "Trae botas de montaña y ganas de desconectar.",
-                diasRevelarSorpresaAntes: 2,
-                recuerdo: "",
-                vuelos: [],
-                checklist: [
-                    ItemChecklist(texto: "Botas de trekking", completado: false, asignadoA: "Ambos")
-                ],
-                ideas: ["Ruta de las cascadas"]
-            ),
-            Escapada(
-                titulo: "Escapada rural y vino",
-                destino: "Brihuega",
-                fechaInicio: fechaPasada,
-                fechaFin: Calendar.current.date(byAdding: .day, value: 2, to: fechaPasada) ?? fechaPasada,
-                icono: "🍷",
-                tieneVuelos: false,
-                esSorpresa: false,
-                pistaSorpresa: "",
-                recuerdo: "Nos encantó cenar en la plaza y pasear tranquilos sin prisas.",
-                momentoFavorito: "El atardecer entre los campos con una copa de vino local.",
-                valoracion: ValoracionViaje(
-                    experienciaCiudad: 5,
-                    museosCultura: 4,
-                    gastronomia: 5,
-                    alojamientoDescanso: 5,
-                    momentosJuntos: 5
-                ),
-                vuelos: [],
-                checklist: [],
-                ideas: []
-            )
-        ]
-        
-        escapadas = iniciales
-        guardarCopiaLocal()
-        if subirANube {
-            for esc in iniciales {
-                guardarEnFirestore(esc)
+                self.escapadas = remotas
+                self.guardarCopiaLocal()
             }
         }
     }
@@ -638,16 +470,16 @@ class EscapadasStore: ObservableObject {
 // ============================================================================
 // 4. PUNTO DE ENTRADA DE LA APP iOS
 // ============================================================================
-
-@main
-struct NuestrasEscapadasApp: App {
-    @StateObject private var store = EscapadasStore()
-    
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .environmentObject(store)
-                .tint(Color(red: 0.88, green: 0.43, blue: 0.33))
+    private func guardarEnFirestore(_ escapada: Escapada) {
+        guard let db = db else { return }
+        do {
+            try db.collection("parejas")
+                .document(codigoPareja)
+                .collection("escapadas")
+                .document(escapada.id.uuidString)
+                .setData(from: escapada)
+        } catch {
+            estadoNube = "Error al guardar"
         }
     }
 }
@@ -989,18 +821,20 @@ struct DetalleEscapadaView: View {
                             }
                         ))
                         
+                        let diasAntesBinding = Binding<Int>(
+                            get: { escapada.diasRevelarSorpresaAntes },
+                            set: { nuevosDias in
+                                var copia = escapada
+                                copia.diasRevelarSorpresaAntes = max(0, nuevosDias)
+                                store.actualizarEscapada(copia)
+                            }
+                        )
+                        
                         Stepper(
                             escapada.diasRevelarSorpresaAntes == 0
                             ? "Revelar el mismo día del viaje"
                             : "Revelar \(escapada.diasRevelarSorpresaAntes) \(escapada.diasRevelarSorpresaAntes == 1 ? "día" : "días") antes",
-                            value: Binding<Int>(
-                                get: { escapada.diasRevelarSorpresaAntes },
-                                set: { nuevosDias in
-                                    var copia = escapada
-                                    copia.diasRevelarSorpresaAntes = max(0, nuevosDias)
-                                    store.actualizarEscapada(copia)
-                                }
-                            ),
+                            value: diasAntesBinding,
                             in: 0...30
                         )
                     }
@@ -1012,7 +846,7 @@ struct DetalleEscapadaView: View {
                         if escapada.totalDias > 1 {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
-                                    ForEach(1...escapada.totalDias, id: \.self) { dia in
+                                    ForEach(Array(1...escapada.totalDias), id: \.self) { dia in
                                         let fechaDia = escapada.fechaParaDia(dia)
                                         let activo = diaSeleccionado == dia
                                         Button {
@@ -1060,16 +894,16 @@ struct DetalleEscapadaView: View {
                                             nombreSitio: nombre,
                                             urlSitio: urlLimpia
                                         )
-                                    )
-                                    store.actualizarEscapada(copia)
-                                    nuevoSitioNombre = ""
-                                    nuevoSitioURL = ""
+                        HStack(spacing: 4) {
+                            ForEach(Array(1...5), id: \.self) { estrella in
+                                Button {
+                                    puntuacion = (puntuacion == estrella) ? 0 : estrella
                                 } label: {
-                                    Label("Añadir", systemImage: "plus.circle.fill")
-                                        .font(.caption.bold())
+                                    Image(systemName: estrella <= puntuacion ? "star.fill" : "star")
+                                        .font(.subheadline)
+                                        .foregroundStyle(estrella <= puntuacion ? Color.orange : Color.secondary.opacity(0.4))
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(nuevoSitioNombre.trimmingCharacters(in: .whitespaces).isEmpty)
+                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.vertical, 4)
@@ -1537,7 +1371,7 @@ struct NuevaEscapadaSheet: View {
                 Section("Icono") {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
-                            ForEach(iconos, id: \.self) { em in
+                            ForEach(iconos, id: \.self) { (em: String) in
                                 Text(em)
                                     .font(.title)
                                     .padding(8)
