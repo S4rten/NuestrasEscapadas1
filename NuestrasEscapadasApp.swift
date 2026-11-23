@@ -462,6 +462,77 @@ struct PrevisionDia: Identifiable {
 enum ServicioClima {
     static func obtenerPrevision(destino: String, fechaInicio: Date) async -> [PrevisionDia] {
         let limpio = destino.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !limpio.isEmpty else { return [] }
+        
+        var coordenada: CLLocationCoordinate2D? = nil
+        let geocoder = CLGeocoder()
+        if let placemarks = try? await geocoder.geocodeAddressString(limpio),
+           let loc = placemarks.first?.location {
+            coordenada = loc.coordinate
+        }
+        
+        guard let coord = coordenada else { return [] }
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coord.latitude)&longitude=\(coord.longitude)&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=5"
+        guard let url = URL(string: urlString) else { return [] }
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let daily = json["daily"] as? [String: Any],
+                  let times = daily["time"] as? [String],
+                  let codes = daily["weathercode"] as? [Int],
+                  let maxTemps = daily["temperature_2m_max"] as? [Double],
+                  let minTemps = daily["temperature_2m_min"] as? [Double] else {
+                return []
+            }
+            
+            let count = min(times.count, min(codes.count, min(maxTemps.count, minTemps.count)))
+            var resultados: [PrevisionDia] = []
+            let formatterEntrada = DateFormatter()
+            formatterEntrada.dateFormat = "yyyy-MM-dd"
+            let formatterSalida = DateFormatter()
+            formatterSalida.locale = Locale(identifier: "es_ES")
+            formatterSalida.dateFormat = "EEE d"
+            
+            for i in 0..<count {
+                let etiquetaFecha: String
+                if let fechaObj = formatterEntrada.date(from: times[i]) {
+                    etiquetaFecha = formatterSalida.string(from: fechaObj).capitalized
+                } else {
+                    etiquetaFecha = times[i]
+                }
+                let info = infoCodigoClima(codes[i])
+                resultados.append(
+                    PrevisionDia(
+                        fecha: etiquetaFecha,
+                        icono: info.icono,
+                        tempMax: Int(round(maxTemps[i])),
+                        tempMin: Int(round(minTemps[i])),
+                        descripcion: info.texto
+                    )
+                )
+            }
+            return resultados
+        } catch {
+            return []
+        }
+    }
+    
+    private static func infoCodigoClima(_ code: Int) -> (icono: String, texto: String) {
+        switch code {
+        case 0: return ("☀️", "Despejado")
+        case 1, 2: return ("🌤️", "Poco nuboso")
+        case 3: return ("☁️", "Nublado")
+        case 45, 48: return ("🌫️", "Niebla")
+        case 51, 53, 55, 61, 63, 65: return ("🌧️", "Lluvia")
+        case 71, 73, 75, 77: return ("❄️", "Nieve")
+        case 80, 81, 82: return ("🌦️", "Chubascos")
+        case 95, 96, 99: return ("⛈️", "Tormenta")
+        default: return ("🌡️", "Variable")
+        }
+    }
+}
+
 // Conversor de Divisa en tiempo real (Europa, Norteamérica, Latinoamérica y Asia)
 enum ServicioDivisas {
     struct MonedaItem: Identifiable, Hashable {
@@ -1732,6 +1803,21 @@ struct DetalleEscapadaView: View {
                                                 .font(.caption.bold())
                                         }
                                         .buttonStyle(.bordered)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        } else {
+                            Button {
+                                mostrandoEditarAlojamiento = true
+                            } label: {
+                                Label("Añadir hotel o apartamento", systemImage: "bed.double.fill")
+                            }
+                        }
+                    } header: {
+                        Text("🏨 Alojamiento")
+                    }
+                    
                 // Sección Retos Fotográficos del Viaje (con opción de añadir foto real)
                 Section {
                     HStack {
@@ -1939,9 +2025,9 @@ struct DetalleEscapadaView: View {
                 
                 // Sección Gastos Compartidos (con soporte multi-divisa convertido a EUR)
                 Section {
-                    let totalGastos = escapada.gastos.reduce(0) { $0 + $1.importe }
-                    let pagadoYo = escapada.gastos.filter { $0.pagadoPor == "Yo" }.reduce(0) { $0 + $1.importe }
-                    let pagadoTu = escapada.gastos.filter { $0.pagadoPor == "Tú" }.reduce(0) { $0 + $1.importe }
+                    let totalGastos: Double = escapada.gastos.reduce(0.0) { (acc: Double, gasto: GastoViaje) -> Double in acc + gasto.importe }
+                    let pagadoYo: Double = escapada.gastos.filter { $0.pagadoPor == "Yo" }.reduce(0.0) { (acc: Double, gasto: GastoViaje) -> Double in acc + gasto.importe }
+                    let pagadoTu: Double = escapada.gastos.filter { $0.pagadoPor == "Tú" }.reduce(0.0) { (acc: Double, gasto: GastoViaje) -> Double in acc + gasto.importe }
                     let mitad = totalGastos / 2.0
                     let diferencia = pagadoYo - mitad
                     
@@ -2297,6 +2383,134 @@ struct AgregarDocumentoSheet: View {
     @State private var titulo = ""
     @State private var tipo = "QR / Entrada"
     @State private var codigoOUrl = ""
+    @State private var itemPicker: PhotosPickerItem? = nil
+    @State private var imagenBase64: String? = nil
+    @State private var imagenPreview: UIImage? = nil
+    
+    let tiposDocumento = ["QR / Entrada", "Billete", "Reserva", "Otro"]
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Datos del documento") {
+                    TextField("Título (ej: Entrada Museo, QR Tren)", text: $titulo)
+                    Picker("Tipo", selection: $tipo) {
+                        ForEach(tiposDocumento, id: \.self) { t in
+                            Text(t).tag(t)
+                        }
+                    }
+                    TextField("Código o enlace opcional", text: $codigoOUrl)
+                        .autocapitalization(.none)
+                }
+                
+                Section("Imagen / Captura de QR") {
+                    PhotosPicker(selection: $itemPicker, matching: .images) {
+                        Label(imagenPreview == nil ? "Elegir captura o foto de QR" : "Cambiar imagen", systemImage: "photo.on.rectangle")
+                    }
+                    
+                    if let uiImg = imagenPreview {
+                        Image(uiImage: uiImg)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 220)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+            .navigationTitle("Nuevo documento")
+            .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: itemPicker) { _, nuevoItem in
+                guard let item = nuevoItem else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let img = UIImage(data: data) {
+                        imagenPreview = img
+                        imagenBase64 = UtilidadImagen.comprimirParaNube(img)
+                    }
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar") {
+                        let docNuevo = DocumentoBoveda(
+                            titulo: titulo.trimmingCharacters(in: .whitespacesAndNewlines),
+                            tipo: tipo,
+                            codigoOUrl: codigoOUrl.trimmingCharacters(in: .whitespacesAndNewlines),
+                            imagenBase64: imagenBase64
+                        )
+                        var copia = escapada
+                        copia.documentos.append(docNuevo)
+                        store.actualizarEscapada(copia)
+                        dismiss()
+                    }
+                    .disabled(titulo.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+struct VisorDocumentoSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let documento: DocumentoBoveda
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Text(documento.tipo.uppercased())
+                    .font(.caption.bold())
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(Capsule())
+                
+                Text(documento.titulo)
+                    .font(.title3.bold())
+                    .multilineTextAlignment(.center)
+                
+                if let b64 = documento.imagenBase64,
+                   let data = Data(base64Encoded: b64),
+                   let uiImg = UIImage(data: data) {
+                    Image(uiImage: uiImg)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(radius: 6)
+                }
+                
+                if !documento.codigoOUrl.isEmpty {
+                    if let url = URL(string: documento.codigoOUrl), documento.codigoOUrl.lowercased().hasPrefix("http") {
+                        Link(destination: url) {
+                            Label("Abrir enlace del documento", systemImage: "safari")
+                                .font(.subheadline.bold())
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Text(documento.codigoOUrl)
+                            .font(.headline.monospaced())
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Documento")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Listo") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 struct VisorFotoRetoSheet: View {
     @Environment(\.dismiss) var dismiss
     let reto: RetoFotografico
@@ -2807,16 +3021,17 @@ struct YaVividoView: View {
     @EnvironmentObject var store: EscapadasStore
     
     private var totalDiasJuntos: Int {
-        store.escapadasPasadas.reduce(0) { $0 + $1.totalDias }
+        store.escapadasPasadas.reduce(0) { (acc: Int, esc: Escapada) -> Int in acc + esc.totalDias }
     }
     
     private var totalVuelos: Int {
-        store.escapadasPasadas.reduce(0) { $0 + $1.vuelos.count }
+        store.escapadasPasadas.reduce(0) { (acc: Int, esc: Escapada) -> Int in acc + esc.vuelos.count }
     }
     
     private var totalInvertido: Double {
-        store.escapadasPasadas.reduce(0.0) { acc, esc in
-            acc + esc.gastos.reduce(0.0) { $0 + $1.importe }
+        store.escapadasPasadas.reduce(0.0) { (acc: Double, esc: Escapada) -> Double in
+            let sumaGastos: Double = esc.gastos.reduce(0.0) { (gAcc: Double, gasto: GastoViaje) -> Double in gAcc + gasto.importe }
+            return acc + sumaGastos
         }
     }
     
