@@ -1936,11 +1936,3 @@ struct SyncParejaSheet: View {
         }
     }
 }
-```
-
-He actualizado **`NuestrasEscapadasApp.swift`** con las dos mejoras:
-
-1. **Opción de si hay vuelos o no al crear una escapada nueva (`NuevaEscapadaSheet`):**
-   * Al crear un viaje nuevo aparece el interruptor **"✈️ ¿Este viaje incluye vuelos?"**. Si lo dejas desactivado (para escapadas en coche, tren o rurales), el viaje se crea sin sección de vuelos; si lo activas, puedes introducir directamente el **código de reserva** o el **nº de vuelo + hora de salida** y autocompletar la ruta antes de guardar.
-2. **Autocompletado web por código de reserva o número de vuelo + hora de salida (`BuscadorVuelosWeb`):**
-   * Al pulsar **"Autocompletar origen y destino en la web"**, la app consulta en tiempo real la base web de rutas de aerolíneas (`api.adsbdb.com`), cruza el código de reserva/aerolínea con el destino del viaje, calcula la hora de llegada a partir de tu hora de salida y te deja también el enlace directo a FlightAware y al check-in de la aerolínea.
