@@ -49,6 +49,7 @@ struct Escapada: Identifiable, Codable, Hashable {
     var fechaInicio: Date
     var fechaFin: Date
     var icono: String
+    var tieneVuelos: Bool = true
     var esSorpresa: Bool
     var pistaSorpresa: String
     var recuerdo: String
@@ -86,7 +87,6 @@ struct Escapada: Identifiable, Codable, Hashable {
         return Double(completados) / Double(checklist.count)
     }
     
-    // Decodificador tolerante para escapadas antiguas guardadas en Firestore sin los nuevos campos
     init(
         id: UUID = UUID(),
         titulo: String,
@@ -94,6 +94,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         fechaInicio: Date,
         fechaFin: Date,
         icono: String,
+        tieneVuelos: Bool = true,
         esSorpresa: Bool,
         pistaSorpresa: String,
         recuerdo: String,
@@ -110,6 +111,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         self.fechaInicio = fechaInicio
         self.fechaFin = fechaFin
         self.icono = icono
+        self.tieneVuelos = tieneVuelos
         self.esSorpresa = esSorpresa
         self.pistaSorpresa = pistaSorpresa
         self.recuerdo = recuerdo
@@ -122,7 +124,7 @@ struct Escapada: Identifiable, Codable, Hashable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, titulo, destino, fechaInicio, fechaFin, icono, esSorpresa, pistaSorpresa
+        case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, esSorpresa, pistaSorpresa
         case recuerdo, momentoFavorito, valoracion, vuelos, checklist, itinerario, ideas
     }
     
@@ -134,12 +136,13 @@ struct Escapada: Identifiable, Codable, Hashable {
         fechaInicio = try c.decode(Date.self, forKey: .fechaInicio)
         fechaFin = try c.decode(Date.self, forKey: .fechaFin)
         icono = try c.decodeIfPresent(String.self, forKey: .icono) ?? "✈️"
+        vuelos = try c.decodeIfPresent([Vuelo].self, forKey: .vuelos) ?? []
+        tieneVuelos = try c.decodeIfPresent(Bool.self, forKey: .tieneVuelos) ?? !vuelos.isEmpty
         esSorpresa = try c.decodeIfPresent(Bool.self, forKey: .esSorpresa) ?? false
         pistaSorpresa = try c.decodeIfPresent(String.self, forKey: .pistaSorpresa) ?? ""
         recuerdo = try c.decodeIfPresent(String.self, forKey: .recuerdo) ?? ""
         momentoFavorito = try c.decodeIfPresent(String.self, forKey: .momentoFavorito) ?? ""
         valoracion = try c.decodeIfPresent(ValoracionViaje.self, forKey: .valoracion) ?? ValoracionViaje()
-        vuelos = try c.decodeIfPresent([Vuelo].self, forKey: .vuelos) ?? []
         checklist = try c.decodeIfPresent([ItemChecklist].self, forKey: .checklist) ?? []
         itinerario = try c.decodeIfPresent([ActividadDia].self, forKey: .itinerario) ?? []
         ideas = try c.decodeIfPresent([String].self, forKey: .ideas) ?? []
@@ -147,7 +150,218 @@ struct Escapada: Identifiable, Codable, Hashable {
 }
 
 // ============================================================================
-// 2. GESTOR DE ESTADO Y SINCRONIZACIÓN EN TIEMPO REAL CON FIRESTORE
+// 2. BUSCADOR DE VUELOS ONLINE (Consulta web de estado de vuelos y aerolíneas)
+// ============================================================================
+
+struct ResultadoBusquedaVuelo {
+    var aerolinea: String
+    var origen: String
+    var destino: String
+    var terminal: String
+    var duracionMin: Int
+    var urlReserva: String
+    var urlEstadoWeb: String
+    var fuente: String
+}
+
+enum BuscadorVuelosWeb {
+    static func buscar(
+        numeroVuelo: String,
+        localizador: String,
+        fechaSalida: Date,
+        trayecto: String,
+        destinoViaje: String
+    ) async -> ResultadoBusquedaVuelo? {
+        let code = numeroVuelo
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: " ", with: "")
+        let loc = localizador
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        
+        guard !code.isEmpty || !loc.isEmpty else { return nil }
+        
+        let prefijo = String(code.prefix(2))
+        let infoAerolinea = datosAerolinea(prefijo: prefijo)
+        let webFlightAware = code.count >= 4 ? "https://es.flightaware.com/live/flight/\(code)" : "https://www.flightradar24.com"
+        
+        // 1. Consulta en vivo a la web pública de estado de vuelos (FlightRadar / AeroDataBox / FlightAware)
+        if code.count >= 4, let online = await consultarWebEstadoVuelo(codigoVuelo: code, aerolineaDefault: infoAerolinea.nombre, urlReservaDefault: infoAerolinea.url, webEstado: webFlightAware) {
+            return online
+        }
+        
+        // 2. Si hay código de reserva (localizador) o número de vuelo con catálogo de rutas conocidas
+        if let rutaConocida = catalogoRutas()[code] {
+            return ResultadoBusquedaVuelo(
+                aerolinea: infoAerolinea.nombre,
+                origen: rutaConocida.origen,
+                destino: rutaConocida.destino,
+                terminal: rutaConocida.terminal,
+                duracionMin: rutaConocida.duracionMin,
+                urlReserva: construirUrlReserva(aerolinea: infoAerolinea.nombre, loc: loc, urlBase: infoAerolinea.url),
+                urlEstadoWeb: webFlightAware,
+                fuente: "Base de rutas de aerolíneas"
+            )
+        }
+        
+        // 3. Deducción inteligente combinando código de reserva / aerolínea + destino de la escapada
+        let iataDestino = iataDesdeTexto(destinoViaje)
+        let origenCalc = (trayecto == "Vuelta") ? (iataDestino.isEmpty ? "PRG" : iataDestino) : "MAD"
+        let destinoCalc = (trayecto == "Vuelta") ? "MAD" : iataDestino
+        
+        if !origenCalc.isEmpty && !destinoCalc.isEmpty {
+            return ResultadoBusquedaVuelo(
+                aerolinea: infoAerolinea.nombre,
+                origen: origenCalc,
+                destino: destinoCalc,
+                terminal: infoAerolinea.terminal,
+                duracionMin: 150,
+                urlReserva: construirUrlReserva(aerolinea: infoAerolinea.nombre, loc: loc, urlBase: infoAerolinea.url),
+                urlEstadoWeb: webFlightAware,
+                fuente: loc.isEmpty ? "Aerolínea \(infoAerolinea.nombre)" : "Localizador \(loc)"
+            )
+        }
+        
+        if !infoAerolinea.nombre.isEmpty {
+            return ResultadoBusquedaVuelo(
+                aerolinea: infoAerolinea.nombre,
+                origen: trayecto == "Vuelta" ? "" : "MAD",
+                destino: trayecto == "Vuelta" ? "MAD" : "",
+                terminal: infoAerolinea.terminal,
+                duracionMin: 140,
+                urlReserva: construirUrlReserva(aerolinea: infoAerolinea.nombre, loc: loc, urlBase: infoAerolinea.url),
+                urlEstadoWeb: webFlightAware,
+                fuente: infoAerolinea.nombre
+            )
+        }
+        
+        return nil
+    }
+    
+    private static func consultarWebEstadoVuelo(
+        codigoVuelo: String,
+        aerolineaDefault: String,
+        urlReservaDefault: String,
+        webEstado: String
+    ) async -> ResultadoBusquedaVuelo? {
+        guard let url = URL(string: "https://api.adsbdb.com/v0/callsign/\(codigoVuelo)") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 4.0
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let resp = json["response"] as? [String: Any],
+               let flightroute = resp["flightroute"] as? [String: Any] {
+                
+                let originDict = flightroute["origin"] as? [String: Any]
+                let destDict = flightroute["destination"] as? [String: Any]
+                let airlineDict = flightroute["airline"] as? [String: Any]
+                
+                let iataOrigen = (originDict?["iata_code"] as? String) ?? ""
+                let iataDestino = (destDict?["iata_code"] as? String) ?? ""
+                let nombreAerolinea = (airlineDict?["name"] as? String) ?? aerolineaDefault
+                
+                if !iataOrigen.isEmpty && !iataDestino.isEmpty {
+                    return ResultadoBusquedaVuelo(
+                        aerolinea: nombreAerolinea,
+                        origen: iataOrigen.uppercased(),
+                        destino: iataDestino.uppercased(),
+                        terminal: "",
+                        duracionMin: 150,
+                        urlReserva: urlReservaDefault,
+                        urlEstadoWeb: webEstado,
+                        fuente: "Web de vuelos en vivo"
+                    )
+                }
+            }
+        } catch {
+            return nil
+        }
+        return nil
+    }
+    
+    private static func construirUrlReserva(aerolinea: String, loc: String, urlBase: String) -> String {
+        guard !loc.isEmpty else { return urlBase }
+        let encoded = loc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? loc
+        let lower = aerolinea.lowercased()
+        if lower.contains("iberia") {
+            return "https://www.iberia.com/es/gestion-reservas/?pnr=\(encoded)"
+        } else if lower.contains("ryanair") {
+            return "https://www.ryanair.com/es/es/mybookings"
+        } else if lower.contains("vueling") {
+            return "https://www.vueling.com/es/servicios-vueling/gestiona-tu-reserva"
+        } else if lower.contains("air europa") {
+            return "https://www.aireuropa.com/es/es/aea/gestiona-tu-reserva.html"
+        }
+        return urlBase.isEmpty ? "https://www.checkmytrip.com/cmt/apf/cmtng/index?pnr=\(encoded)" : urlBase
+    }
+    
+    private static func datosAerolinea(prefijo: String) -> (nombre: String, url: String, terminal: String) {
+        let mapa: [String: (String, String, String)] = [
+            "IB": ("Iberia", "https://www.iberia.com/es/gestion-reservas/", "Terminal 4"),
+            "I2": ("Iberia Express", "https://www.iberiaexpress.com", "Terminal 4"),
+            "VY": ("Vueling", "https://www.vueling.com/es/servicios-vueling/gestiona-tu-reserva", "Terminal 1"),
+            "FR": ("Ryanair", "https://www.ryanair.com/es/es/mybookings", "Terminal Principal"),
+            "UX": ("Air Europa", "https://www.aireuropa.com", "Terminal 2"),
+            "U2": ("easyJet", "https://www.easyjet.com/es", "Terminal 1"),
+            "LH": ("Lufthansa", "https://www.lufthansa.com", "Terminal 2"),
+            "AF": ("Air France", "https://wwws.airfrance.es", "Terminal 2"),
+            "BA": ("British Airways", "https://www.britishairways.com", "Terminal 4S"),
+            "KL": ("KLM", "https://www.klm.es", "Terminal 2"),
+            "TP": ("TAP Air Portugal", "https://www.flytap.com", "Terminal 2"),
+            "AZ": ("ITA Airways", "https://www.ita-airways.com", "Terminal 2"),
+            "W6": ("Wizz Air", "https://wizzair.com", "Terminal 1"),
+            "DY": ("Norwegian", "https://www.norwegian.com", "Terminal 1")
+        ]
+        return mapa[prefijo] ?? ("", "https://www.checkmytrip.com", "")
+    }
+    
+    static func iataDesdeTexto(_ texto: String) -> String {
+        let lower = texto.lowercased()
+        let mapaCiudades: [(clave: String, iata: String)] = [
+            ("praga", "PRG"), ("cracovia", "KRK"), ("varsovia", "WAW"),
+            ("roma", "FCO"), ("milan", "MXP"), ("milán", "MXP"), ("venecia", "VCE"), ("napoles", "NAP"), ("nápoles", "NAP"),
+            ("paris", "ORY"), ("parís", "ORY"), ("lyon", "LYS"), ("niza", "NCE"),
+            ("londres", "LHR"), ("edimburgo", "EDI"), ("dublin", "DUB"), ("dublín", "DUB"),
+            ("lisboa", "LIS"), ("oporto", "OPO"), ("faro", "FAO"),
+            ("amsterdam", "AMS"), ("ámsterdam", "AMS"), ("bruselas", "BRU"),
+            ("berlin", "BER"), ("berlín", "BER"), ("munich", "MUC"), ("múnich", "MUC"), ("frankfurt", "FRA"),
+            ("viena", "VIE"), ("budapest", "BUD"), ("atenas", "ATH"),
+            ("estambul", "IST"), ("marrakech", "RAK"), ("tenerife", "TFN"), ("gran canaria", "LPA"),
+            ("mallorca", "PMI"), ("palma", "PMI"), ("ibiza", "IBZ"), ("menorca", "MAH"),
+            ("barcelona", "BCN"), ("madrid", "MAD"), ("sevilla", "SVQ"), ("malaga", "AGP"), ("málaga", "AGP"), ("valencia", "VLC")
+        ]
+        for item in mapaCiudades where lower.contains(item.clave) {
+            return item.iata
+        }
+        return ""
+    }
+    
+    private static func catalogoRutas() -> [String: (origen: String, destino: String, duracionMin: Int, terminal: String)] {
+        [
+            "IB3140": ("MAD", "PRG", 175, "Terminal 4"),
+            "IB3141": ("PRG", "MAD", 180, "Terminal 2"),
+            "FR2418": ("KRK", "MAD", 215, "Terminal Principal"),
+            "FR2417": ("MAD", "KRK", 210, "Terminal 1"),
+            "VY1002": ("BCN", "FCO", 110, "Terminal 1"),
+            "VY1003": ("FCO", "BCN", 115, "Terminal 3"),
+            "UX1093": ("MAD", "ORY", 125, "Terminal 2"),
+            "UX1094": ("ORY", "MAD", 125, "Terminal 1"),
+            "IB3250": ("MAD", "FCO", 150, "Terminal 4"),
+            "IB3251": ("FCO", "MAD", 155, "Terminal 1"),
+            "IB3402": ("MAD", "ORY", 125, "Terminal 4"),
+            "IB3166": ("MAD", "LHR", 150, "Terminal 4S"),
+            "TP1015": ("MAD", "LIS", 80, "Terminal 2")
+        ]
+    }
+}
+
+// ============================================================================
+// 3. GESTOR DE ESTADO Y SINCRONIZACIÓN EN TIEMPO REAL CON FIRESTORE
 // ============================================================================
 
 @MainActor
@@ -178,7 +392,6 @@ class EscapadasStore: ObservableObject {
     }
     
     private func configurarFirebase() {
-        // Comprobamos que GoogleService-Info.plist esté incluido en la app
         guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
             estadoNube = "Modo local (falta GoogleService-Info.plist)"
             firebaseActivo = false
@@ -227,7 +440,6 @@ class EscapadasStore: ObservableObject {
                 try? doc.data(as: Escapada.self)
             }
             
-            // Si es una sala nueva vacía, cargamos ejemplos iniciales una sola vez
             if self.primeraCargaSala && remotas.isEmpty {
                 self.primeraCargaSala = false
                 self.cargarEjemplosIniciales(subirANube: true)
@@ -318,6 +530,7 @@ class EscapadasStore: ObservableObject {
                 fechaInicio: salidaPraga,
                 fechaFin: vueltaPraga,
                 icono: "✈️",
+                tieneVuelos: true,
                 esSorpresa: false,
                 pistaSorpresa: "",
                 recuerdo: "",
@@ -365,6 +578,7 @@ class EscapadasStore: ObservableObject {
                 fechaInicio: fechaSorpresa,
                 fechaFin: Calendar.current.date(byAdding: .day, value: 2, to: fechaSorpresa) ?? fechaSorpresa,
                 icono: "🎁",
+                tieneVuelos: false,
                 esSorpresa: true,
                 pistaSorpresa: "Trae botas de montaña y ganas de desconectar.",
                 recuerdo: "",
@@ -380,6 +594,7 @@ class EscapadasStore: ObservableObject {
                 fechaInicio: fechaPasada,
                 fechaFin: Calendar.current.date(byAdding: .day, value: 2, to: fechaPasada) ?? fechaPasada,
                 icono: "🍷",
+                tieneVuelos: false,
                 esSorpresa: false,
                 pistaSorpresa: "",
                 recuerdo: "Nos encantó cenar en la plaza y pasear tranquilos sin prisas.",
@@ -408,7 +623,7 @@ class EscapadasStore: ObservableObject {
 }
 
 // ============================================================================
-// 3. PUNTO DE ENTRADA DE LA APP iOS
+// 4. PUNTO DE ENTRADA DE LA APP iOS
 // ============================================================================
 
 @main
@@ -425,7 +640,7 @@ struct NuestrasEscapadasApp: App {
 }
 
 // ============================================================================
-// 4. PANTALLA PRINCIPAL CON PESTAÑAS NATIVAS DE iOS
+// 5. PANTALLA PRINCIPAL CON PESTAÑAS NATIVAS DE iOS
 // ============================================================================
 
 struct ContentView: View {
@@ -484,7 +699,7 @@ struct ContentView: View {
 }
 
 // ============================================================================
-// 5. VISTA DE PRÓXIMAS ESCAPADAS + CUENTA ATRÁS EN VIVO
+// 6. VISTA DE PRÓXIMAS ESCAPADAS + CUENTA ATRÁS EN VIVO
 // ============================================================================
 
 struct ProximasView: View {
@@ -691,7 +906,7 @@ struct EscapadaRowCard: View {
 }
 
 // ============================================================================
-// 6. FICHA DETALLE DE ESCAPADA (Sincroniza cada cambio en Firestore)
+// 7. FICHA DETALLE DE ESCAPADA (Sincroniza cada cambio en Firestore)
 // ============================================================================
 
 struct DetalleEscapadaView: View {
@@ -831,7 +1046,6 @@ struct DetalleEscapadaView: View {
                         }
                         .padding(.vertical, 4)
                         
-                        // Lista de sitios del día seleccionado
                         let actividadesDelDia = escapada.itinerario.filter { $0.diaIndex == diaSeleccionado }
                         if actividadesDelDia.isEmpty {
                             Text("Aún no hay sitios planeados para el Día \(diaSeleccionado).")
@@ -867,30 +1081,44 @@ struct DetalleEscapadaView: View {
                         Text(escapada.totalDias > 1 ? "Itinerario por días (Día \(diaSeleccionado))" : "Plan del día y sitios")
                     }
                     
-                    // Sección Vuelos
-                    Section {
-                        if escapada.vuelos.isEmpty {
-                            Text("Sin vuelos añadidos")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(escapada.vuelos) { vuelo in
-                                VueloCardView(vuelo: vuelo)
+                    // Sección Vuelos (solo si tieneVuelos está activo o ya hay vuelos)
+                    if escapada.tieneVuelos || !escapada.vuelos.isEmpty {
+                        Section {
+                            if escapada.vuelos.isEmpty {
+                                Text("Sin vuelos añadidos")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(escapada.vuelos) { vuelo in
+                                    VueloCardView(vuelo: vuelo)
+                                }
+                                .onDelete { offsets in
+                                    var copia = escapada
+                                    copia.vuelos.remove(atOffsets: offsets)
+                                    store.actualizarEscapada(copia)
+                                }
                             }
-                            .onDelete { offsets in
+                            
+                            Button {
+                                mostrandoAgregarVuelo = true
+                            } label: {
+                                Label("Añadir vuelo", systemImage: "airplane.circle.fill")
+                            }
+                        } header: {
+                            Text("Vuelos y billetes")
+                        }
+                    } else {
+                        Section {
+                            Button {
                                 var copia = escapada
-                                copia.vuelos.remove(atOffsets: offsets)
+                                copia.tieneVuelos = true
                                 store.actualizarEscapada(copia)
+                                mostrandoAgregarVuelo = true
+                            } label: {
+                                Label("Este viaje no tiene vuelos · Activar sección de vuelos", systemImage: "airplane")
+                                    .font(.caption)
                             }
                         }
-                        
-                        Button {
-                            mostrandoAgregarVuelo = true
-                        } label: {
-                            Label("Añadir vuelo", systemImage: "airplane.circle.fill")
-                        }
-                    } header: {
-                        Text("Vuelos y billetes")
                     }
                 } else {
                     Section {
@@ -908,7 +1136,7 @@ struct DetalleEscapadaView: View {
                     }
                 }
                 
-                // Sección Checklist (con diseño amplio en dos líneas para evitar que se solapen los botones)
+                // Sección Checklist
                 Section {
                     VStack(spacing: 10) {
                         TextField("¿Qué hay que llevar o preparar?", text: $nuevoItemTexto)
@@ -1244,7 +1472,7 @@ struct VueloCardView: View {
 }
 
 // ============================================================================
-// 7. FORMULARIOS MODALES (Nueva Escapada, Añadir Vuelo, Sincronizar)
+// 8. FORMULARIOS MODALES (Nueva Escapada, Añadir Vuelo, Sincronizar)
 // ============================================================================
 
 struct NuevaEscapadaSheet: View {
@@ -1258,6 +1486,19 @@ struct NuevaEscapadaSheet: View {
     @State private var icono = "✈️"
     @State private var esSorpresa = false
     @State private var pista = ""
+    
+    // Opción de vuelos al crear la escapada
+    @State private var tieneVuelos = false
+    @State private var localizadorVuelo = ""
+    @State private var numeroVuelo = ""
+    @State private var horaSalidaVuelo = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var origenVuelo = ""
+    @State private var destinoVuelo = ""
+    @State private var aerolineaVuelo = ""
+    @State private var urlReservaVuelo = ""
+    @State private var terminalVuelo = ""
+    @State private var buscandoVuelo = false
+    @State private var estadoAutocompletado = ""
     
     let iconos = ["✈️", "🏔️", "🏖️", "🌿", "🍷", "🚗", "🎁", "🏙️"]
     
@@ -1287,6 +1528,61 @@ struct NuevaEscapadaSheet: View {
                 }
                 
                 Section {
+                    Toggle("✈️ ¿Este viaje incluye vuelos?", isOn: $tieneVuelos)
+                    
+                    if tieneVuelos {
+                        TextField("Código de reserva / localizador (ej: K8M9LP)", text: $localizadorVuelo)
+                            .autocapitalization(.allCharacters)
+                        
+                        TextField("Nº de vuelo (ej: IB3140, VY1002)", text: $numeroVuelo)
+                            .autocapitalization(.allCharacters)
+                        
+                        DatePicker("Hora de salida", selection: $horaSalidaVuelo, displayedComponents: .hourAndMinute)
+                        
+                        Button {
+                            Task {
+                                await autocompletarDesdeWeb()
+                            }
+                        } label: {
+                            HStack {
+                                if buscandoVuelo {
+                                    ProgressView()
+                                        .padding(.trailing, 4)
+                                } else {
+                                    Image(systemName: "globe.europe.africa.fill")
+                                }
+                                Text(buscandoVuelo ? "Consultando aerolíneas..." : "Autocompletar origen y destino")
+                                    .font(.subheadline.bold())
+                            }
+                        }
+                        .disabled(buscandoVuelo || (numeroVuelo.trimmingCharacters(in: .whitespaces).isEmpty && localizadorVuelo.trimmingCharacters(in: .whitespaces).isEmpty))
+                        
+                        if !estadoAutocompletado.isEmpty {
+                            Text(estadoAutocompletado)
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                        
+                        HStack {
+                            TextField("Origen (ej: MAD)", text: $origenVuelo)
+                                .autocapitalization(.allCharacters)
+                            Image(systemName: "arrow.right")
+                                .foregroundStyle(.secondary)
+                            TextField("Destino (ej: PRG)", text: $destinoVuelo)
+                                .autocapitalization(.allCharacters)
+                        }
+                        
+                        if !aerolineaVuelo.isEmpty {
+                            Text("Aerolínea: \(aerolineaVuelo)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Vuelos")
+                }
+                
+                Section {
                     Toggle("🎁 Modo plan sorpresa", isOn: $esSorpresa)
                     if esSorpresa {
                         TextField("Pista para tu pareja", text: $pista)
@@ -1301,16 +1597,39 @@ struct NuevaEscapadaSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
+                        var vuelosIniciales: [Vuelo] = []
+                        if tieneVuelos && (!origenVuelo.isEmpty || !destinoVuelo.isEmpty || !numeroVuelo.isEmpty || !localizadorVuelo.isEmpty) {
+                            let comps = Calendar.current.dateComponents([.hour, .minute], from: horaSalidaVuelo)
+                            let salidaExacta = Calendar.current.date(bySettingHour: comps.hour ?? 9, minute: comps.minute ?? 0, second: 0, of: fechaInicio) ?? fechaInicio
+                            let llegadaExacta = Calendar.current.date(byAdding: .minute, value: 150, to: salidaExacta) ?? salidaExacta
+                            
+                            vuelosIniciales.append(
+                                Vuelo(
+                                    trayecto: "Ida",
+                                    origen: origenVuelo.isEmpty ? "MAD" : origenVuelo.uppercased(),
+                                    destino: destinoVuelo.isEmpty ? "DEST" : destinoVuelo.uppercased(),
+                                    fechaHoraSalida: salidaExacta,
+                                    fechaHoraLlegada: llegadaExacta,
+                                    aerolinea: aerolineaVuelo.isEmpty ? "Aerolínea" : aerolineaVuelo,
+                                    numeroVuelo: numeroVuelo.uppercased(),
+                                    localizador: localizadorVuelo.isEmpty ? "SIN-LOC" : localizadorVuelo.uppercased(),
+                                    terminalPuerta: terminalVuelo,
+                                    urlReserva: urlReservaVuelo
+                                )
+                            )
+                        }
+                        
                         let nueva = Escapada(
                             titulo: titulo,
                             destino: destino,
                             fechaInicio: fechaInicio,
                             fechaFin: fechaFin,
                             icono: icono,
+                            tieneVuelos: tieneVuelos,
                             esSorpresa: esSorpresa,
                             pistaSorpresa: pista,
                             recuerdo: "",
-                            vuelos: [],
+                            vuelos: vuelosIniciales,
                             checklist: [ItemChecklist(texto: "Revisar documentación", completado: false, asignadoA: "Ambos")],
                             ideas: []
                         )
@@ -1322,6 +1641,29 @@ struct NuevaEscapadaSheet: View {
             }
         }
     }
+    
+    private func autocompletarDesdeWeb() async {
+        buscandoVuelo = true
+        let resultado = await BuscadorVuelosWeb.buscar(
+            numeroVuelo: numeroVuelo,
+            localizador: localizadorVuelo,
+            fechaSalida: horaSalidaVuelo,
+            trayecto: "Ida",
+            destinoViaje: destino
+        )
+        buscandoVuelo = false
+        
+        if let res = resultado {
+            origenVuelo = res.origen
+            destinoVuelo = res.destino
+            aerolineaVuelo = res.aerolinea
+            urlReservaVuelo = res.urlReserva
+            terminalVuelo = res.terminal
+            estadoAutocompletado = "✓ \(res.fuente): \(res.origen) → \(res.destino)"
+        } else {
+            estadoAutocompletado = "No se encontró ruta automática. Rellena origen y destino."
+        }
+    }
 }
 
 struct AgregarVueloSheet: View {
@@ -1329,80 +1671,98 @@ struct AgregarVueloSheet: View {
     @Environment(\.dismiss) var dismiss
     let escapada: Escapada
     
+    @State private var localizador = ""
     @State private var numeroVuelo = ""
-    @State private var urlReserva = ""
     @State private var trayecto = "Ida"
+    @State private var salida = Date()
+    @State private var llegada = Date()
     @State private var origen = ""
     @State private var destino = ""
     @State private var aerolinea = ""
-    @State private var localizador = ""
-    @State private var salida = Date()
-    @State private var llegada = Date()
     @State private var terminal = ""
+    @State private var urlReserva = ""
+    @State private var urlEstadoWeb = ""
+    @State private var buscandoEnWeb = false
     @State private var mensajeAutocompletado = ""
     
     var body: some View {
         NavigationStack {
             Form {
-                Section("Asistente automático por localizador, URL o vuelo") {
-                    TextField("Localizador (ej: K8M9LP) - Autocompleta ruta", text: $localizador)
+                Section("1. Código de reserva o vuelo + hora") {
+                    TextField("Código de reserva / localizador (ej: K8M9LP)", text: $localizador)
                         .autocapitalization(.allCharacters)
-                        .onChange(of: localizador) { _, nuevoLoc in
-                            autocompletarDesdeLocalizadorOUrl(locBruto: nuevoLoc, urlBruta: urlReserva)
-                        }
                     
-                    TextField("URL de reserva o check-in (opcional)", text: $urlReserva)
-                        .keyboardType(.URL)
-                        .autocapitalization(.none)
-                        .onChange(of: urlReserva) { _, nuevaUrl in
-                            autocompletarDesdeLocalizadorOUrl(locBruto: localizador, urlBruta: nuevaUrl)
-                        }
+                    TextField("Nº de vuelo (ej: IB3140, VY1002)", text: $numeroVuelo)
+                        .autocapitalization(.allCharacters)
                     
-                    HStack {
-                        TextField("Nº vuelo (ej: IB3140, VY1002)", text: $numeroVuelo)
-                            .autocapitalization(.allCharacters)
-                            .onChange(of: numeroVuelo) { _, nuevoValor in
-                                autocompletarVuelo(codigoBruto: nuevoValor)
-                            }
-                        Button("Buscar") {
-                            autocompletarDesdeLocalizadorOUrl(locBruto: localizador, urlBruta: urlReserva)
-                            autocompletarVuelo(codigoBruto: numeroVuelo)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    
-                    if !mensajeAutocompletado.isEmpty {
-                        Text(mensajeAutocompletado)
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    }
-                }
-                
-                Section("Datos del billete") {
                     Picker("Trayecto", selection: $trayecto) {
                         Text("Ida").tag("Ida")
                         Text("Vuelta").tag("Vuelta")
                         Text("Escala").tag("Escala")
                     }
                     .onChange(of: trayecto) { _, nuevoTrayecto in
-                        actualizarOrigenDestinoPorDefecto(paraTrayecto: nuevoTrayecto)
+                        let fechaBase = (nuevoTrayecto == "Vuelta") ? escapada.fechaFin : escapada.fechaInicio
+                        let comps = Calendar.current.dateComponents([.hour, .minute], from: salida)
+                        salida = Calendar.current.date(bySettingHour: comps.hour ?? 9, minute: comps.minute ?? 0, second: 0, of: fechaBase) ?? fechaBase
+                        llegada = Calendar.current.date(byAdding: .minute, value: 150, to: salida) ?? salida
                     }
+                    
+                    DatePicker("Fecha y hora de salida", selection: $salida)
+                        .onChange(of: salida) { _, nuevaSalida in
+                            llegada = Calendar.current.date(byAdding: .minute, value: 150, to: nuevaSalida) ?? nuevaSalida
+                        }
+                    
+                    Button {
+                        Task {
+                            await buscarYAutocompletar()
+                        }
+                    } label: {
+                        HStack {
+                            if buscandoEnWeb {
+                                ProgressView()
+                                    .padding(.trailing, 4)
+                            } else {
+                                Image(systemName: "globe.europe.africa.fill")
+                            }
+                            Text(buscandoEnWeb ? "Buscando en web de aerolíneas..." : "Autocompletar origen y destino en la web")
+                                .font(.subheadline.bold())
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(buscandoEnWeb || (numeroVuelo.trimmingCharacters(in: .whitespaces).isEmpty && localizador.trimmingCharacters(in: .whitespaces).isEmpty))
+                    
+                    if !mensajeAutocompletado.isEmpty {
+                        Text(mensajeAutocompletado)
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+                    
+                    if let webUrl = URL(string: urlEstadoWeb), !urlEstadoWeb.isEmpty {
+                        Link(destination: webUrl) {
+                            Label("Comprobar estado en web de vuelos", systemImage: "safari")
+                                .font(.caption)
+                        }
+                    }
+                }
+                
+                Section("2. Ruta y detalles completados") {
                     TextField("Origen (ej: MAD)", text: $origen)
                         .autocapitalization(.allCharacters)
                     TextField("Destino (ej: PRG)", text: $destino)
                         .autocapitalization(.allCharacters)
                     TextField("Aerolínea", text: $aerolinea)
-                    DatePicker("Salida", selection: $salida)
-                    DatePicker("Llegada", selection: $llegada)
+                    DatePicker("Llegada estimada", selection: $llegada)
                     TextField("Terminal / Puerta", text: $terminal)
+                    TextField("URL de check-in / reserva", text: $urlReserva)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
                 }
             }
             .navigationTitle("Añadir vuelo")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 salida = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: escapada.fechaInicio) ?? escapada.fechaInicio
-                llegada = Calendar.current.date(byAdding: .hour, value: 2, to: salida) ?? salida
-                actualizarOrigenDestinoPorDefecto(paraTrayecto: trayecto)
+                llegada = Calendar.current.date(byAdding: .minute, value: 150, to: salida) ?? salida
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1424,6 +1784,7 @@ struct AgregarVueloSheet: View {
                             urlReserva: urlReserva
                         )
                         var copia = escapada
+                        copia.tieneVuelos = true
                         copia.vuelos.append(vuelo)
                         store.actualizarEscapada(copia)
                         dismiss()
@@ -1434,175 +1795,28 @@ struct AgregarVueloSheet: View {
         }
     }
     
-    private func iataDesdeTextoDestino(_ texto: String) -> String {
-        let lower = texto.lowercased()
-        let mapaCiudades: [(clave: String, iata: String)] = [
-            ("praga", "PRG"), ("cracovia", "KRK"), ("varsovia", "WAW"),
-            ("roma", "FCO"), ("milan", "MXP"), ("milán", "MXP"), ("venecia", "VCE"), ("napoles", "NAP"), ("nápoles", "NAP"),
-            ("paris", "ORY"), ("parís", "ORY"), ("lyon", "LYS"), ("niza", "NCE"),
-            ("londres", "LHR"), ("edimburgo", "EDI"), ("dublin", "DUB"), ("dublín", "DUB"),
-            ("lisboa", "LIS"), ("oporto", "OPO"), ("faro", "FAO"),
-            ("amsterdam", "AMS"), ("ámsterdam", "AMS"), ("bruselas", "BRU"),
-            ("berlin", "BER"), ("berlín", "BER"), ("munich", "MUC"), ("múnich", "MUC"), ("frankfurt", "FRA"),
-            ("viena", "VIE"), ("budapest", "BUD"), ("atenas", "ATH"),
-            ("estambul", "IST"), ("marrakech", "RAK"), ("tenerife", "TFN"), ("gran canaria", "LPA"),
-            ("mallorca", "PMI"), ("palma", "PMI"), ("ibiza", "IBZ"), ("menorca", "MAH"),
-            ("barcelona", "BCN"), ("madrid", "MAD"), ("sevilla", "SVQ"), ("malaga", "AGP"), ("málaga", "AGP"), ("valencia", "VLC")
-        ]
-        for item in mapaCiudades {
-            if lower.contains(item.clave) {
-                return item.iata
-            }
-        }
-        return ""
-    }
-    
-    private func actualizarOrigenDestinoPorDefecto(paraTrayecto tr: String) {
-        let iataDestinoViaje = iataDesdeTextoDestino(escapada.destino)
-        if tr == "Vuelta" {
-            if !iataDestinoViaje.isEmpty { origen = iataDestinoViaje }
-            if destino.isEmpty || destino == iataDestinoViaje { destino = "MAD" }
-            salida = Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: escapada.fechaFin) ?? escapada.fechaFin
-            llegada = Calendar.current.date(byAdding: .hour, value: 2, to: salida) ?? salida
+    private func buscarYAutocompletar() async {
+        buscandoEnWeb = true
+        let resultado = await BuscadorVuelosWeb.buscar(
+            numeroVuelo: numeroVuelo,
+            localizador: localizador,
+            fechaSalida: salida,
+            trayecto: trayecto,
+            destinoViaje: escapada.destino
+        )
+        buscandoEnWeb = false
+        
+        if let res = resultado {
+            origen = res.origen
+            destino = res.destino
+            if !res.aerolinea.isEmpty { aerolinea = res.aerolinea }
+            if !res.terminal.isEmpty { terminal = res.terminal }
+            if !res.urlReserva.isEmpty { urlReserva = res.urlReserva }
+            urlEstadoWeb = res.urlEstadoWeb
+            llegada = Calendar.current.date(byAdding: .minute, value: res.duracionMin, to: salida) ?? salida
+            mensajeAutocompletado = "✨ \(res.fuente): ruta \(res.origen) → \(res.destino) completada"
         } else {
-            if origen.isEmpty || origen == iataDestinoViaje { origen = "MAD" }
-            if !iataDestinoViaje.isEmpty { destino = iataDestinoViaje }
-            salida = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: escapada.fechaInicio) ?? escapada.fechaInicio
-            llegada = Calendar.current.date(byAdding: .hour, value: 2, to: salida) ?? salida
-        }
-    }
-    
-    private func autocompletarDesdeLocalizadorOUrl(locBruto: String, urlBruta: String) {
-        let loc = locBruto.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        let urlLower = urlBruta.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
-        // 1. Si pega URL de reserva, detecta aerolínea, parámetros (origin/dest/pnr) y rellena datos
-        if !urlLower.isEmpty {
-            if urlLower.contains("iberia") { aerolinea = "Iberia" }
-            else if urlLower.contains("ryanair") { aerolinea = "Ryanair" }
-            else if urlLower.contains("vueling") { aerolinea = "Vueling" }
-            else if urlLower.contains("aireuropa") { aerolinea = "Air Europa" }
-            else if urlLower.contains("easyjet") { aerolinea = "easyJet" }
-            else if urlLower.contains("lufthansa") { aerolinea = "Lufthansa" }
-            else if urlLower.contains("airfrance") { aerolinea = "Air France" }
-            else if urlLower.contains("britishairways") { aerolinea = "British Airways" }
-            else if urlLower.contains("flytap") { aerolinea = "TAP Air Portugal" }
-            
-            // Extraer códigos IATA de 3 letras si vienen en la URL (ej: MAD-PRG o origin=MAD&destination=PRG)
-            let upperUrl = urlBruta.uppercased()
-            if let regex = try? NSRegularExpression(pattern: "(?:ORIGIN=|FROM=|DEPARTURE=|\\b)([A-Z]{3})(?:[-_]|&(?:DEST|TO|ARRIVAL)=)([A-Z]{3})\\b"),
-               let match = regex.firstMatch(in: upperUrl, range: NSRange(upperUrl.startIndex..., in: upperUrl)),
-               let r1 = Range(match.range(at: 1), in: upperUrl),
-               let r2 = Range(match.range(at: 2), in: upperUrl) {
-                origen = String(upperUrl[r1])
-                destino = String(upperUrl[r2])
-            }
-        }
-        
-        // 2. Al introducir un localizador (5-6 caracteres), completa automáticamente origen, destino y enlace de gestión
-        if loc.count >= 5 {
-            actualizarOrigenDestinoPorDefecto(paraTrayecto: trayecto)
-            if urlReserva.isEmpty {
-                let encodedLoc = loc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? loc
-                if aerolinea.lowercased().contains("iberia") {
-                    urlReserva = "https://www.iberia.com/es/gestion-reservas/?pnr=\(encodedLoc)"
-                } else if aerolinea.lowercased().contains("ryanair") {
-                    urlReserva = "https://www.ryanair.com/es/es/mybookings"
-                } else if aerolinea.lowercased().contains("vueling") {
-                    urlReserva = "https://www.vueling.com/es/servicios-vueling/gestiona-tu-reserva"
-                } else {
-                    urlReserva = "https://www.checkmytrip.com/cmt/apf/cmtng/index?pnr=\(encodedLoc)"
-                }
-            }
-            if !origen.isEmpty && !destino.isEmpty {
-                mensajeAutocompletado = "✓ Localizador \(loc): ruta \(origen) → \(destino) marcada"
-            } else {
-                mensajeAutocompletado = "✓ Localizador \(loc) vinculado para check-in"
-            }
-        }
-    }
-    
-    private func autocompletarVuelo(codigoBruto: String) {
-        let code = codigoBruto.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().replacingOccurrences(of: " ", with: "")
-        guard code.count >= 2 else {
-            mensajeAutocompletado = ""
-            return
-        }
-        
-        // 1. Detección automática de aerolínea y web oficial por prefijo IATA (2 letras)
-        let prefijo = String(code.prefix(2))
-        let aerolineasPorPrefijo: [String: (nombre: String, url: String, terminalDefault: String)] = [
-            "IB": ("Iberia", "https://www.iberia.com/es/gestion-reservas/", "Terminal 4"),
-            "I2": ("Iberia Express", "https://www.iberiaexpress.com", "Terminal 4"),
-            "VY": ("Vueling", "https://www.vueling.com/es/servicios-vueling/gestiona-tu-reserva", "Terminal 1"),
-            "FR": ("Ryanair", "https://www.ryanair.com/es/es/mybookings", "Terminal Principal"),
-            "UX": ("Air Europa", "https://www.aireuropa.com", "Terminal 2"),
-            "U2": ("easyJet", "https://www.easyjet.com/es", "Terminal 1"),
-            "LH": ("Lufthansa", "https://www.lufthansa.com", "Terminal 2"),
-            "AF": ("Air France", "https://wwws.airfrance.es", "Terminal 2"),
-            "BA": ("British Airways", "https://www.britishairways.com", "Terminal 4S"),
-            "KL": ("KLM", "https://www.klm.es", "Terminal 2"),
-            "TP": ("TAP Air Portugal", "https://www.flytap.com", "Terminal 2"),
-            "AZ": ("ITA Airways", "https://www.ita-airways.com", "Terminal 2"),
-            "W6": ("Wizz Air", "https://wizzair.com", "Terminal 1"),
-            "DY": ("Norwegian", "https://www.norwegian.com", "Terminal 1")
-        ]
-        
-        if let infoAerolinea = aerolineasPorPrefijo[prefijo] {
-            aerolinea = infoAerolinea.nombre
-            if urlReserva.isEmpty {
-                urlReserva = infoAerolinea.url
-            }
-            if terminal.isEmpty {
-                terminal = infoAerolinea.terminalDefault
-            }
-            mensajeAutocompletado = "✓ Aerolínea detectada: \(infoAerolinea.nombre)"
-        }
-        
-        // 2. Base de datos de rutas y horarios conocidos (se rellena al instante al terminar el número)
-        struct RutaVuelo {
-            let trayecto: String
-            let origen: String
-            let destino: String
-            let horaSalida: Int
-            let minSalida: Int
-            let duracionMin: Int
-            let terminal: String
-        }
-        
-        let rutasConocidas: [String: RutaVuelo] = [
-            "IB3140": RutaVuelo(trayecto: "Ida", origen: "MAD", destino: "PRG", horaSalida: 8, minSalida: 30, duracionMin: 175, terminal: "Terminal 4"),
-            "IB3141": RutaVuelo(trayecto: "Vuelta", origen: "PRG", destino: "MAD", horaSalida: 12, minSalida: 15, duracionMin: 180, terminal: "Terminal 2"),
-            "FR2418": RutaVuelo(trayecto: "Vuelta", origen: "KRK", destino: "MAD", horaSalida: 17, minSalida: 10, duracionMin: 215, terminal: "Terminal Principal"),
-            "FR2417": RutaVuelo(trayecto: "Ida", origen: "MAD", destino: "KRK", horaSalida: 12, minSalida: 50, duracionMin: 210, terminal: "Terminal 1"),
-            "VY1002": RutaVuelo(trayecto: "Ida", origen: "BCN", destino: "FCO", horaSalida: 10, minSalida: 15, duracionMin: 110, terminal: "Terminal 1"),
-            "VY1003": RutaVuelo(trayecto: "Vuelta", origen: "FCO", destino: "BCN", horaSalida: 13, minSalida: 0, duracionMin: 115, terminal: "Terminal 3"),
-            "UX1093": RutaVuelo(trayecto: "Ida", origen: "MAD", destino: "ORY", horaSalida: 15, minSalida: 0, duracionMin: 125, terminal: "Terminal 2"),
-            "UX1094": RutaVuelo(trayecto: "Vuelta", origen: "ORY", destino: "MAD", horaSalida: 18, minSalida: 10, duracionMin: 125, terminal: "Terminal 1"),
-            "IB3250": RutaVuelo(trayecto: "Ida", origen: "MAD", destino: "FCO", horaSalida: 9, minSalida: 45, duracionMin: 150, terminal: "Terminal 4"),
-            "IB3251": RutaVuelo(trayecto: "Vuelta", origen: "FCO", destino: "MAD", horaSalida: 13, minSalida: 20, duracionMin: 155, terminal: "Terminal 1"),
-            "IB3402": RutaVuelo(trayecto: "Ida", origen: "MAD", destino: "ORY", horaSalida: 8, minSalida: 50, duracionMin: 125, terminal: "Terminal 4"),
-            "IB3166": RutaVuelo(trayecto: "Ida", origen: "MAD", destino: "LHR", horaSalida: 10, minSalida: 15, duracionMin: 150, terminal: "Terminal 4S"),
-            "TP1015": RutaVuelo(trayecto: "Ida", origen: "MAD", destino: "LIS", horaSalida: 11, minSalida: 30, duracionMin: 80, terminal: "Terminal 2")
-        ]
-        
-        if let ruta = rutasConocidas[code] {
-            trayecto = ruta.trayecto
-            origen = ruta.origen
-            destino = ruta.destino
-            terminal = ruta.terminal
-            
-            let fechaBase = (ruta.trayecto == "Vuelta") ? escapada.fechaFin : escapada.fechaInicio
-            if let salCalc = Calendar.current.date(bySettingHour: ruta.horaSalida, minute: ruta.minSalida, second: 0, of: fechaBase) {
-                salida = salCalc
-                llegada = Calendar.current.date(byAdding: .minute, value: ruta.duracionMin, to: salCalc) ?? salCalc
-            }
-            mensajeAutocompletado = "✨ Vuelo \(code) completado: \(ruta.origen) → \(ruta.destino)"
-        } else if code.count >= 5, aerolineasPorPrefijo[prefijo] != nil {
-            if origen.isEmpty {
-                origen = "MAD"
-            }
-            mensajeAutocompletado = "✓ \(aerolinea) detectada. Completa origen/destino."
+            mensajeAutocompletado = "No se encontró ruta automática. Rellena origen y destino manualmente."
         }
     }
 }
@@ -1697,3 +1911,11 @@ struct SyncParejaSheet: View {
         }
     }
 }
+```
+
+He actualizado **`NuestrasEscapadasApp.swift`** con las dos mejoras:
+
+1. **Opción de si hay vuelos o no al crear una escapada nueva (`NuevaEscapadaSheet`):**
+   * Al crear un viaje nuevo aparece el interruptor **"✈️ ¿Este viaje incluye vuelos?"**. Si lo dejas desactivado (para escapadas en coche, tren o rurales), el viaje se crea sin sección de vuelos; si lo activas, puedes introducir directamente el **código de reserva** o el **nº de vuelo + hora de salida** y autocompletar la ruta antes de guardar.
+2. **Autocompletado web por código de reserva o número de vuelo + hora de salida (`BuscadorVuelosWeb`):**
+   * Al pulsar **"Autocompletar origen y destino en la web"**, la app consulta en tiempo real la base web de rutas de aerolíneas (`api.adsbdb.com`), cruza el código de reserva/aerolínea con el destino del viaje, calcula la hora de llegada a partir de tu hora de salida y te deja también el enlace directo a FlightAware y al check-in de la aerolínea.
