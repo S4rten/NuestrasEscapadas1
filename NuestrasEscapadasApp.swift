@@ -1354,24 +1354,25 @@ struct DetalleEscapadaView: View {
             ),
             selection: $itemPickerReto,
             matching: .images
-            .onChange(of: itemPickerReto) { _, nuevoItem in
-                guard let retoObjetivo = retoParaFoto,
-                      let item = nuevoItem,
-                      var copia = escapadaActual else { return }
-                Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let original = UIImage(data: data),
-                       let base64 = UtilidadImagen.comprimirParaNube(original) {
-                        if let idx = copia.retosFoto.firstIndex(where: { $0.id == retoObjetivo.id }) {
-                            copia.retosFoto[idx].fotoBase64 = base64
-                            copia.retosFoto[idx].completado = true
-                            store.actualizarEscapada(copia)
-                        }
+        )
+        .onChange(of: itemPickerReto) { _, nuevoItem in
+            guard let retoObjetivo = retoParaFoto,
+                  let item = nuevoItem,
+                  var copia = escapadaActual else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let original = UIImage(data: data),
+                   let base64 = UtilidadImagen.comprimirParaNube(original) {
+                    if let idx = copia.retosFoto.firstIndex(where: { $0.id == retoObjetivo.id }) {
+                        copia.retosFoto[idx].fotoBase64 = base64
+                        copia.retosFoto[idx].completado = true
+                        store.actualizarEscapada(copia)
                     }
-                    retoParaFoto = nil
-                    itemPickerReto = nil
                 }
+                retoParaFoto = nil
+                itemPickerReto = nil
             }
+        }
     }
     
     @ViewBuilder
