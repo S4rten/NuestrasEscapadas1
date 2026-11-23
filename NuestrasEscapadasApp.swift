@@ -1354,30 +1354,30 @@ struct DetalleEscapadaView: View {
             ),
             selection: $itemPickerReto,
             matching: .images
-        )
-        .onChange(of: itemPickerReto) { _, nuevoItem in
-            guard let retoObjetivo = retoParaFoto,
-                  let item = nuevoItem,
-                  var copia = escapadaActual else { return }
-            Task {
-                if let data = try? await item.loadTransferable(type: Data.self),
-                   let original = UIImage(data: data),
-                   let base64 = UtilidadImagen.comprimirParaNube(original) {
-                    if let idx = copia.retosFoto.firstIndex(where: { $0.id == retoObjetivo.id }) {
-                        copia.retosFoto[idx].fotoBase64 = base64
-                        copia.retosFoto[idx].completado = true
-                        store.actualizarEscapada(copia)
+            .onChange(of: itemPickerReto) { _, nuevoItem in
+                guard let retoObjetivo = retoParaFoto,
+                      let item = nuevoItem,
+                      var copia = escapadaActual else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let original = UIImage(data: data),
+                       let base64 = UtilidadImagen.comprimirParaNube(original) {
+                        if let idx = copia.retosFoto.firstIndex(where: { $0.id == retoObjetivo.id }) {
+                            copia.retosFoto[idx].fotoBase64 = base64
+                            copia.retosFoto[idx].completado = true
+                            store.actualizarEscapada(copia)
+                        }
                     }
+                    retoParaFoto = nil
+                    itemPickerReto = nil
                 }
-                retoParaFoto = nil
-                itemPickerReto = nil
             }
-        }
     }
     
     @ViewBuilder
     private func contenidoDetalle(escapada: Escapada) -> some View {
         let sorpresaBloqueada = escapada.esSorpresa && !escapada.sorpresaDesbloqueada
+        let totalesGasto = calcularTotalesGastos(escapada.gastos)
         
         List {
             Section {
@@ -1900,14 +1900,9 @@ struct DetalleEscapadaView: View {
             }
             
             Section {
-                var totalGastos: Double = 0
-                var pagadoYo: Double = 0
-                var pagadoTu: Double = 0
-                for gasto in escapada.gastos {
-                    totalGastos += gasto.importe
-                    if gasto.pagadoPor == "Yo" { pagadoYo += gasto.importe }
-                    if gasto.pagadoPor == "Tú" { pagadoTu += gasto.importe }
-                }
+                let totalGastos = totalesGasto.total
+                let pagadoYo = totalesGasto.yo
+                let pagadoTu = totalesGasto.tu
                 let diferencia = pagadoYo - (totalGastos / 2.0)
                 
                 VStack(spacing: 10) {
@@ -2019,6 +2014,18 @@ struct DetalleEscapadaView: View {
                 cargandoClima = false
             }
         }
+    }
+    
+    private func calcularTotalesGastos(_ gastos: [GastoViaje]) -> (total: Double, yo: Double, tu: Double) {
+        var total = 0.0
+        var yo = 0.0
+        var tu = 0.0
+        for g in gastos {
+            total += g.importe
+            if g.pagadoPor == "Yo" { yo += g.importe }
+            if g.pagadoPor == "Tú" { tu += g.importe }
+        }
+        return (total, yo, tu)
     }
 }
 
