@@ -507,7 +507,7 @@ class EscapadasStore: ObservableObject {
                 .document(codigoPareja)
                 .collection("escapadas")
                 .document(escapada.id.uuidString)
-                .setData(from: escapada)
+                .setData(from: escapada, merge: false)
             estadoNube = "En vivo"
         } catch {
             estadoNube = "Error al guardar"
