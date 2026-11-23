@@ -773,23 +773,26 @@ class EscapadasStore: ObservableObject {
     }
     
     private func configurarFirebase() {
-        guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
+        let rutaPlist = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist")
+            ?? Bundle.main.urls(forResourcesWithExtension: "plist", subdirectory: nil)?.first(where: { $0.lastPathComponent == "GoogleService-Info.plist" })?.path
+
+        guard rutaPlist != nil else {
             estadoNube = "Modo local (falta GoogleService-Info.plist)"
             firebaseActivo = false
             if escapadas.isEmpty { cargarEjemplosIniciales(subirANube: false) }
             if wishlist.isEmpty { cargarWishlistInicial(subirANube: false) }
             return
         }
-        
+
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
-        
+
         db = Firestore.firestore()
         firebaseActivo = true
         conectarASala(codigo: codigoPareja)
     }
-    
+
     func conectarASala(codigo: String) {
         let limpio = codigo
             .trimmingCharacters(in: .whitespacesAndNewlines)
