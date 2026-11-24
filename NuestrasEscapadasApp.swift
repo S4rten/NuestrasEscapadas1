@@ -1140,80 +1140,293 @@ struct DetalleEscapadaView: View {
                         }
                     }
 
-                    Toggle("🎁 Modo plan sorpresa", isOn: Binding(
-                        get: { escapada.esSorpresa },
-                        set: { nuevoValor in
-                            var copia = escapada
-                            copia.esSorpresa = nuevoValor
-                            store.actualizarEscapada(copia)
+                    Section {
+                        Button {
+                            mostrandoAgregarGasto = true
+                        } label: {
+                            Label("Añadir gasto", systemImage: "plus.circle.fill")
+                                .font(.subheadline.bold())
                         }
-                    ))
 
-                    if escapada.esSorpresa {
-                        TextField("Pista para tu pareja...", text: Binding(
-                            get: { escapada.pistaSorpresa },
-                            set: { nuevaPista in
+                        if escapada.gastos.isEmpty {
+                            Text("Aún no hay gastos registrados en esta escapada.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(escapada.gastos) { gasto in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(gasto.concepto)
+                                            .font(.subheadline.weight(.medium))
+                                        Text("\(gasto.categoria) · Pagó: \(gasto.pagadoPor)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        if gasto.monedaEfectiva != "EUR" {
+                                            Text("Pagado: \(CatalogoDivisas.formatearOriginal(importe: gasto.importeOriginalEfectivo, codigoDivisa: gasto.monedaEfectiva))")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    Text(String(format: "%.2f €", gasto.importe))
+                                        .font(.subheadline.bold().monospacedDigit())
+                                }
+                            }
+                            .onDelete { offsets in
                                 var copia = escapada
-                                copia.pistaSorpresa = nuevaPista
+                                copia.gastos.remove(atOffsets: offsets)
                                 store.actualizarEscapada(copia)
                             }
-                        ))
 
-                        let diasAntesBinding = Binding<Int>(
-                            get: { escapada.diasRevelarSorpresaAntes },
-                            set: { nuevosDias in
+                            let totalEuros = escapada.gastos.reduce(0) { $0 + $1.importe }
+                            HStack {
+                                Text("Total en euros")
+                                    .font(.caption.bold())
+                                Spacer()
+                                Text(String(format: "%.2f €", totalEuros))
+                                    .font(.caption.bold().monospacedDigit())
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    } header: {
+                        Text("Gastos compartidos")
+                    }
+
+                    Section {
+                        HStack {
+                            TextField("Nuevo reto fotográfico...", text: $nuevoRetoTexto)
+                            Button {
+                                let limpio = nuevoRetoTexto.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !limpio.isEmpty else { return }
                                 var copia = escapada
-                                copia.diasRevelarSorpresaAntes = max(0, nuevosDias)
+                                copia.retosFotograficos.append(RetoFotografico(titulo: limpio))
+                                store.actualizarEscapada(copia)
+                                nuevoRetoTexto = ""
+                            } label: {
+                                Image(systemName: "plus.circle.fill")
+                            }
+                            .disabled(nuevoRetoTexto.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+
+                        if escapada.retosFotograficos.isEmpty {
+                            Text("Añade retos de fotos para hacer juntos durante el viaje.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(escapada.retosFotograficos) { reto in
+                                RetoFotograficoFilaView(
+                                    reto: reto,
+                                    onGuardarFotoBase64: { base64 in
+                                        var copia = escapada
+                                        if let idx = copia.retosFotograficos.firstIndex(where: { $0.id == reto.id }) {
+                                            copia.retosFotograficos[idx].fotoBase64 = base64
+                                            copia.retosFotograficos[idx].completado = base64 != nil
+                                            store.actualizarEscapada(copia)
+                                        }
+                                    },
+                                    onQuitarFoto: {
+                                        var copia = escapada
+                                        if let idx = copia.retosFotograficos.firstIndex(where: { $0.id == reto.id }) {
+                                            copia.retosFotograficos[idx].fotoBase64 = nil
+                                            copia.retosFotograficos[idx].completado = false
+                                            store.actualizarEscapada(copia)
+                                        }
+                                    }
+                                )
+                            }
+                            .onDelete { offsets in
+                                var copia = escapada
+                                copia.retosFotograficos.remove(atOffsets: offsets)
                                 store.actualizarEscapada(copia)
                             }
-                        )
+                        }
+                    } header: {
+                        Text("Retos fotográficos de la escapada")
+                    }
 
-                        Stepper(
-                            escapada.diasRevelarSorpresaAntes == 0
-                            ? "Revelar el mismo día del viaje"
-                            : "Revelar \(escapada.diasRevelarSorpresaAntes) \(escapada.diasRevelarSorpresaAntes == 1 ? "día" : "días") antes",
-                            value: diasAntesBinding,
-                            in: 0...30
+                    Section {
+                        FilaEstrellasView(
+                            titulo: "General",
+                            puntuacion: Binding(
+                                get: { escapada.valoracion.general },
+                                set: { val in
+                                    var copia = escapada
+                                    copia.valoracion.general = val
+                                    store.actualizarEscapada(copia)
+                                }
+                            )
                         )
+                        FilaEstrellasView(
+                            titulo: "Alojamiento",
+                            puntuacion: Binding(
+                                get: { escapada.valoracion.alojamiento },
+                                set: { val in
+                                    var copia = escapada
+                                    copia.valoracion.alojamiento = val
+                                    store.actualizarEscapada(copia)
+                                }
+                            )
+                        )
+                        FilaEstrellasView(
+                            titulo: "Comida",
+                            puntuacion: Binding(
+                                get: { escapada.valoracion.comida },
+                                set: { val in
+                                    var copia = escapada
+                                    copia.valoracion.comida = val
+                                    store.actualizarEscapada(copia)
+                                }
+                            )
+                        )
+                        FilaEstrellasView(
+                            titulo: "Planes",
+                            puntuacion: Binding(
+                                get: { escapada.valoracion.planes },
+                                set: { val in
+                                    var copia = escapada
+                                    copia.valoracion.planes = val
+                                    store.actualizarEscapada(copia)
+                                }
+                            )
+                        )
+                    } header: {
+                        Text("Valoración del viaje")
                     }
                 }
 
-                // Sección Plan por Días (oculta si la sorpresa sigue bloqueada)
-                if !sorpresaBloqueada {
-                    PrevisionTiempoDestinoSection(
-                        destino: escapada.destino,
-                        fechaInicio: escapada.fechaInicio,
-                        fechaFin: escapada.fechaFin
-                    )
+                // Checklist compartida
+                Section("Checklist compartida") {
+                    HStack {
+                        TextField("Añadir cosa...", text: $nuevoItemTexto)
+                        Picker("Asignado", selection: $nuevoItemAsignado) {
+                            Text("Ambos").tag("Ambos")
+                            Text("Yo").tag("Yo")
+                            Text("Tú").tag("Tú")
+                        }
+                        .labelsHidden()
+                        Button {
+                            guard !nuevoItemTexto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                            var copia = escapada
+                            copia.checklist.append(ItemChecklist(texto: nuevoItemTexto.trimmingCharacters(in: .whitespaces), asignadoA: nuevoItemAsignado))
+                            store.actualizarEscapada(copia)
+                            nuevoItemTexto = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .disabled(nuevoItemTexto.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
 
-                    Section {
-                        if escapada.totalDias > 1 {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(Array(1...escapada.totalDias), id: \.self) { dia in
-                                        let fechaDia = escapada.fechaParaDia(dia)
-                                        let activo = diaSeleccionado == dia
-                                        Button {
-                                            diaSeleccionado = dia
-                                        } label: {
-                                            VStack(spacing: 2) {
-                                                Text("Día \(dia)")
-                                                    .font(.caption.bold())
-                                                Text(fechaDia.formatted(.dateTime.day().month(.abbreviated)))
-                                                    .font(.caption2)
-                                            }
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 8)
-                                            .background(activo ? Color.accentColor : Color(uiColor: .tertiarySystemGroupedBackground))
-                                            .foregroundStyle(activo ? .white : .primary)
-                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(.vertical, 4)
+                    ForEach(escapada.checklist) { item in
+                        Button {
+                            var copia = escapada
+                            if let idx = copia.checklist.firstIndex(where: { $0.id == item.id }) {
+                                copia.checklist[idx].completado.toggle()
+                                store.actualizarEscapada(copia)
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: item.completado ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(item.completado ? Color.accentColor : Color.secondary)
+                                Text(item.texto)
+                                    .strikethrough(item.completado)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text(item.asignadoA)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                    .clipShape(Capsule())
                             }
                         }
+                        .buttonStyle(.plain)
+                    }
+                    .onDelete { offsets in
+                        var copia = escapada
+                        copia.checklist.remove(atOffsets: offsets)
+                        store.actualizarEscapada(copia)
+                    }
+                }
+
+                // Notas rápidas e ideas
+                Section("Notas rápidas e ideas") {
+                    HStack {
+                        TextField("Idea o enlace...", text: $nuevaIdeaTexto)
+                        Button {
+                            guard !nuevaIdeaTexto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                            var copia = escapada
+                            copia.ideas.append(nuevaIdeaTexto.trimmingCharacters(in: .whitespaces))
+                            store.actualizarEscapada(copia)
+                            nuevaIdeaTexto = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .disabled(nuevaIdeaTexto.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+
+                    ForEach(escapada.ideas, id: \.self) { idea in
+                        if let url = URL(string: idea), idea.lowercased().hasPrefix("http") {
+                            Link(idea, destination: url)
+                        } else {
+                            Text(idea)
+                        }
+                    }
+                    .onDelete { offsets in
+                        var copia = escapada
+                        copia.ideas.remove(atOffsets: offsets)
+                        store.actualizarEscapada(copia)
+                    }
+                }
+
+                // Recuerdo del viaje
+                Section("Nuestro recuerdo") {
+                    TextField("Escribe aquí lo mejor del viaje...", text: Binding(
+                        get: { escapada.recuerdo },
+                        set: { nuevoRecuerdo in
+                            var copia = escapada
+                            copia.recuerdo = nuevoRecuerdo
+                            store.actualizarEscapada(copia)
+                        }
+                    ), axis: .vertical)
+                    .lineLimit(3...6)
+                }
+
+                // Borrar escapada
+                Section {
+                    Button(role: .destructive) {
+                        store.eliminarEscapada(escapada)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Eliminar escapada")
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .navigationTitle(escapada.titulo)
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                diaSeleccionado = min(max(1, diaSeleccionado), escapada.totalDias)
+            }
+            .sheet(isPresented: $mostrandoAgregarVuelo) {
+                AgregarVueloSheet(escapada: escapada)
+            }
+            .sheet(isPresented: $mostrandoAgregarTren) {
+                AgregarTrenSheet(escapada: escapada)
+            }
+            .sheet(isPresented: $mostrandoEditarAlojamiento) {
+                EditarAlojamientoSheet(escapada: escapada, alojamientoExistente: alojamientoAEditar)
+            }
+            .sheet(isPresented: $mostrandoAgregarGasto) {
+                AgregarGastoSheet(escapada: escapada)
+            }
+        } else {
+            ContentUnavailableView("Escapada no encontrada", systemImage: "exclamationmark.triangle")
+        }
+    }
+}
 
 struct PrevisionTiempoDestinoSection: View {
     let destino: String
