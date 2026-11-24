@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-ipa:
-    runs-on: macos-15-intel
+    runs-on: macos-15
 
     steps:
       - name: Descargar codigo del repositorio
@@ -24,6 +24,7 @@ jobs:
 
       - name: Compilar aplicacion sin firma de desarrollador
         run: |
+          set -o pipefail
           xcodebuild clean build \
             -project NuestrasEscapadas.xcodeproj \
             -scheme NuestrasEscapadas \
@@ -32,7 +33,11 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" 2>&1 | tee build.log || {
+              echo "=== ERRORES EXACTOS DE SWIFT ==="
+              grep -n "error:" build.log || true
+              exit 1
+            }
 
       - name: Empaquetar archivo .ipa instalable
         run: |
