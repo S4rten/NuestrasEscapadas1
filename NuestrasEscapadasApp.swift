@@ -62,6 +62,20 @@ struct DocumentoBoveda: Identifiable, Codable, Hashable {
     var fechaAgregado: Date = Date()
 }
 
+struct TrenViaje: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var trayecto: String
+    var origen: String
+    var destino: String
+    var fechaHoraSalida: Date
+    var fechaHoraLlegada: Date
+    var operadora: String
+    var numeroTren: String
+    var localizador: String
+    var anden: String
+    var urlReserva: String
+}
+
 struct Vuelo: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var trayecto: String
@@ -106,6 +120,7 @@ struct Escapada: Identifiable, Codable, Hashable {
     var fechaFin: Date
     var icono: String
     var tieneVuelos: Bool = true
+    var tieneTrenes: Bool = false
     var esSorpresa: Bool
     var pistaSorpresa: String
     var diasRevelarSorpresaAntes: Int = 0
@@ -117,6 +132,7 @@ struct Escapada: Identifiable, Codable, Hashable {
     var retosFoto: [RetoFotografico] = []
     var documentos: [DocumentoBoveda] = []
     var vuelos: [Vuelo]
+    var trenes: [TrenViaje] = []
     var checklist: [ItemChecklist]
     var itinerario: [ActividadDia] = []
     var ideas: [String]
@@ -164,6 +180,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         fechaFin: Date,
         icono: String,
         tieneVuelos: Bool = true,
+        tieneTrenes: Bool = false,
         esSorpresa: Bool,
         pistaSorpresa: String,
         diasRevelarSorpresaAntes: Int = 0,
@@ -175,6 +192,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         retosFoto: [RetoFotografico] = [],
         documentos: [DocumentoBoveda] = [],
         vuelos: [Vuelo],
+        trenes: [TrenViaje] = [],
         checklist: [ItemChecklist],
         itinerario: [ActividadDia] = [],
         ideas: [String]
@@ -186,6 +204,7 @@ struct Escapada: Identifiable, Codable, Hashable {
         self.fechaFin = fechaFin
         self.icono = icono
         self.tieneVuelos = tieneVuelos
+        self.tieneTrenes = tieneTrenes
         self.esSorpresa = esSorpresa
         self.pistaSorpresa = pistaSorpresa
         self.diasRevelarSorpresaAntes = max(0, diasRevelarSorpresaAntes)
@@ -197,15 +216,16 @@ struct Escapada: Identifiable, Codable, Hashable {
         self.retosFoto = retosFoto
         self.documentos = documentos
         self.vuelos = vuelos
+        self.trenes = trenes
         self.checklist = checklist
         self.itinerario = itinerario
         self.ideas = ideas
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, esSorpresa, pistaSorpresa
+        case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, tieneTrenes, esSorpresa, pistaSorpresa
         case diasRevelarSorpresaAntes, recuerdo, momentoFavorito, valoracion, alojamiento, gastos
-        case retosFoto, documentos, vuelos, checklist, itinerario, ideas
+        case retosFoto, documentos, vuelos, trenes, checklist, itinerario, ideas
     }
     
     init(from decoder: Decoder) throws {
@@ -217,7 +237,9 @@ struct Escapada: Identifiable, Codable, Hashable {
         fechaFin = try c.decode(Date.self, forKey: .fechaFin)
         icono = try c.decodeIfPresent(String.self, forKey: .icono) ?? "✈️"
         vuelos = try c.decodeIfPresent([Vuelo].self, forKey: .vuelos) ?? []
+        trenes = try c.decodeIfPresent([TrenViaje].self, forKey: .trenes) ?? []
         tieneVuelos = try c.decodeIfPresent(Bool.self, forKey: .tieneVuelos) ?? !vuelos.isEmpty
+        tieneTrenes = try c.decodeIfPresent(Bool.self, forKey: .tieneTrenes) ?? !trenes.isEmpty
         esSorpresa = try c.decodeIfPresent(Bool.self, forKey: .esSorpresa) ?? false
         pistaSorpresa = try c.decodeIfPresent(String.self, forKey: .pistaSorpresa) ?? ""
         diasRevelarSorpresaAntes = try c.decodeIfPresent(Int.self, forKey: .diasRevelarSorpresaAntes) ?? 0
@@ -592,6 +614,20 @@ enum GestorNotificaciones {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
     
+    static func notificarCambioNotasIdeas(escapada: Escapada, detalle: String) {
+        let content = UNMutableNotificationContent()
+        content.title = "💡 Nuevas notas e ideas · \(escapada.titulo)"
+        content.body = detalle.isEmpty ? "Se han actualizado las notas rápidas e ideas de «\(escapada.titulo)»." : detalle
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "notas_ideas_\(escapada.id.uuidString)_\(UUID().uuidString)",
+            content: content,
+            trigger: trigger
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+    
     static func programarParaEscapada(_ escapada: Escapada) {
         let center = UNUserNotificationCenter.current()
         let prefijoId = escapada.id.uuidString
@@ -749,6 +785,17 @@ class EscapadasStore: ObservableObject {
                     self.primeraCargaSala = false
                     self.cargarEjemplosIniciales(subirANube: true)
                     return
+                }
+                
+                if !self.primeraCargaSala {
+                    for escRemota in remotas {
+                        if let escAnterior = self.escapadas.first(where: { $0.id == escRemota.id }),
+                           escAnterior.ideas != escRemota.ideas {
+                            let nuevas = escRemota.ideas.filter { !escAnterior.ideas.contains($0) }
+                            let textoAviso = nuevas.first.map { "Nuevo en ideas: \($0)" } ?? "Cambio en notas rápidas e ideas"
+                            GestorNotificaciones.notificarCambioNotasIdeas(escapada: escRemota, detalle: textoAviso)
+                        }
+                    }
                 }
                 
                 self.primeraCargaSala = false
@@ -983,12 +1030,26 @@ class EscapadasStore: ObservableObject {
 @main
 struct NuestrasEscapadasApp: App {
     @StateObject private var store = EscapadasStore()
+    @State private var delegadoNotificaciones = DelegadoNotificacionesPopUp()
     
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .onAppear {
+                    UNUserNotificationCenter.current().delegate = delegadoNotificaciones
+                }
         }
+    }
+}
+
+final class DelegadoNotificacionesPopUp: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge])
     }
 }
 
@@ -1292,6 +1353,7 @@ struct DetalleEscapadaView: View {
     @State private var nuevoRetoTexto = ""
     
     @State private var mostrandoAgregarVuelo = false
+    @State private var mostrandoAgregarTren = false
     @State private var mostrandoEditarAlojamiento = false
     @State private var mostrandoAgregarGasto = false
     @State private var mostrandoAgregarDocumento = false
@@ -1319,6 +1381,11 @@ struct DetalleEscapadaView: View {
         .sheet(isPresented: $mostrandoAgregarVuelo) {
             if let esc = escapadaActual {
                 AgregarVueloSheet(escapada: esc)
+            }
+        }
+        .sheet(isPresented: $mostrandoAgregarTren) {
+            if let esc = escapadaActual {
+                AgregarTrenSheet(escapada: esc)
             }
         }
         .sheet(isPresented: $mostrandoEditarAlojamiento) {
@@ -1617,58 +1684,43 @@ struct DetalleEscapadaView: View {
                     }
                 }
                 
-                Section {
-                    ForEach(escapada.documentos) { docItem in
+                if escapada.tieneTrenes || !escapada.trenes.isEmpty {
+                    Section {
+                        ForEach(escapada.trenes) { tren in
+                            TrenCardView(tren: tren)
+                        }
+                        .onDelete { offsets in
+                            var copia = escapada
+                            copia.trenes.remove(atOffsets: offsets)
+                            store.actualizarEscapada(copia)
+                        }
+                        
                         Button {
-                            documentoSeleccionado = docItem
+                            mostrandoAgregarTren = true
                         } label: {
-                            HStack(spacing: 12) {
-                                if let b64 = docItem.imagenBase64,
-                                   let data = Data(base64Encoded: b64),
-                                   let uiImg = UIImage(data: data) {
-                                    Image(uiImage: uiImg)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 44, height: 44)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                } else {
-                                    Image(systemName: "qrcode.viewfinder")
-                                        .font(.title2)
-                                        .foregroundStyle(Color.accentColor)
-                                        .frame(width: 44, height: 44)
-                                        .background(Color.accentColor.opacity(0.12))
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                                
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(docItem.titulo)
-                                        .font(.subheadline.bold())
-                                        .foregroundStyle(.primary)
-                                    Text(docItem.tipo)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            Label("Añadir tren", systemImage: "tram.fill")
+                        }
+                        
+                        HStack(spacing: 8) {
+                            if let urlRenfe = URL(string: "https://www.renfe.com") {
+                                Link("Renfe", destination: urlRenfe)
+                                    .font(.caption.bold())
+                                    .buttonStyle(.bordered)
+                            }
+                            if let urlIryo = URL(string: "https://iryo.eu") {
+                                Link("Iryo", destination: urlIryo)
+                                    .font(.caption.bold())
+                                    .buttonStyle(.bordered)
+                            }
+                            if let urlOuigo = URL(string: "https://www.ouigo.com/es") {
+                                Link("Ouigo", destination: urlOuigo)
+                                    .font(.caption.bold())
+                                    .buttonStyle(.bordered)
                             }
                         }
-                        .buttonStyle(.plain)
+                    } header: {
+                        Text("🚆 Trenes (España)")
                     }
-                    .onDelete { offsets in
-                        var copia = escapada
-                        copia.documentos.remove(atOffsets: offsets)
-                        store.actualizarEscapada(copia)
-                    }
-                    
-                    Button {
-                        mostrandoAgregarDocumento = true
-                    } label: {
-                        Label("Añadir entrada, QR o documento", systemImage: "doc.badge.plus")
-                    }
-                } header: {
-                    Text("📄 Bóveda de entradas y QR")
                 }
                 
                 Section {
@@ -1980,6 +2032,47 @@ struct DetalleEscapadaView: View {
             
             if escapada.yaVivida {
                 Section {
+                    SelectorEstrellasFila(titulo: "🏙️ La ciudad", puntuacion: Binding(
+                        get: { escapada.valoracion.experienciaCiudad },
+                        set: { v in
+                            var copia = escapada
+                            copia.valoracion.experienciaCiudad = v
+                            store.actualizarEscapada(copia)
+                        }
+                    ))
+                    SelectorEstrellasFila(titulo: "🏛️ Museos y cultura", puntuacion: Binding(
+                        get: { escapada.valoracion.museosCultura },
+                        set: { v in
+                            var copia = escapada
+                            copia.valoracion.museosCultura = v
+                            store.actualizarEscapada(copia)
+                        }
+                    ))
+                    SelectorEstrellasFila(titulo: "🍽️ La comida", puntuacion: Binding(
+                        get: { escapada.valoracion.gastronomia },
+                        set: { v in
+                            var copia = escapada
+                            copia.valoracion.gastronomia = v
+                            store.actualizarEscapada(copia)
+                        }
+                    ))
+                    SelectorEstrellasFila(titulo: "🏨 Alojamiento", puntuacion: Binding(
+                        get: { escapada.valoracion.alojamientoDescanso },
+                        set: { v in
+                            var copia = escapada
+                            copia.valoracion.alojamientoDescanso = v
+                            store.actualizarEscapada(copia)
+                        }
+                    ))
+                    SelectorEstrellasFila(titulo: "💕 Momentos juntos", puntuacion: Binding(
+                        get: { escapada.valoracion.momentosJuntos },
+                        set: { v in
+                            var copia = escapada
+                            copia.valoracion.momentosJuntos = v
+                            store.actualizarEscapada(copia)
+                        }
+                    ))
+                    
                     VStack(alignment: .leading, spacing: 6) {
                         Text("📝 Diario y anécdotas de la escapada")
                             .font(.caption.bold())
@@ -1995,49 +2088,43 @@ struct DetalleEscapadaView: View {
                         .frame(minHeight: 120)
                     }
                 } header: {
-                    Text("Nuestro recuerdo")
+                    Text("⭐ Puntuación y nuestro recuerdo")
                 }
             }
             
             Section {
-                Button("Eliminar escapada", role: .destructive) {
-                    store.eliminarEscapada(escapada)
-                    dismiss()
+struct SelectorEstrellasFila: View {
+    let titulo: String
+    @Binding var puntuacion: Int
+    
+    var body: some View {
+        HStack {
+            Text(titulo)
+                .font(.subheadline)
+            Spacer()
+            HStack(spacing: 4) {
+                ForEach(1...5, id: \.self) { estrella in
+                    Button {
+                        puntuacion = (puntuacion == estrella) ? 0 : estrella
+                    } label: {
+                        Image(systemName: estrella <= puntuacion ? "star.fill" : "star")
+                            .foregroundStyle(estrella <= puntuacion ? .yellow : .secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
-        .navigationTitle(escapada.titulo)
-        .navigationBarTitleDisplayMode(.inline)
-        .task(id: "\(escapada.destino)-\(sorpresaBloqueada)") {
-            if !sorpresaBloqueada && !escapada.yaVivida {
-                cargandoClima = true
-                previsionClima = await ServicioClima.obtenerPrevision(destino: escapada.destino, fechaInicio: escapada.fechaInicio)
-                cargandoClima = false
-            }
-        }
-    }
-    
-    private func calcularTotalesGastos(_ gastos: [GastoViaje]) -> (total: Double, yo: Double, tu: Double) {
-        var total = 0.0
-        var yo = 0.0
-        var tu = 0.0
-        for g in gastos {
-            total += g.importe
-            if g.pagadoPor == "Yo" { yo += g.importe }
-            if g.pagadoPor == "Tú" { tu += g.importe }
-        }
-        return (total, yo, tu)
     }
 }
 
-struct VueloCardView: View {
-    let vuelo: Vuelo
+struct TrenCardView: View {
+    let tren: TrenViaje
     @State private var copiado = false
     
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text(vuelo.trayecto.uppercased())
+                Text(tren.trayecto.uppercased())
                     .font(.caption2.bold())
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 8)
@@ -2045,7 +2132,7 @@ struct VueloCardView: View {
                     .background(Color.accentColor.opacity(0.12))
                     .clipShape(Capsule())
                 
-                Text("\(vuelo.aerolinea) · \(vuelo.numeroVuelo)")
+                Text("\(tren.operadora) · \(tren.numeroTren)")
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -2053,32 +2140,32 @@ struct VueloCardView: View {
             
             HStack {
                 VStack(alignment: .leading) {
-                    Text(vuelo.origen)
-                        .font(.title2.bold())
-                    Text(vuelo.fechaHoraSalida.formatted(date: .omitted, time: .shortened))
+                    Text(tren.origen)
+                        .font(.title3.bold())
+                    Text(tren.fechaHoraSalida.formatted(date: .omitted, time: .shortened))
                         .font(.caption.bold())
                         .foregroundStyle(Color.accentColor)
                 }
                 Spacer()
-                Image(systemName: "airplane")
+                Image(systemName: "tram.fill")
                     .foregroundStyle(Color.accentColor)
                 Spacer()
                 VStack(alignment: .trailing) {
-                    Text(vuelo.destino)
-                        .font(.title2.bold())
-                    Text(vuelo.fechaHoraLlegada.formatted(date: .omitted, time: .shortened))
+                    Text(tren.destino)
+                        .font(.title3.bold())
+                    Text(tren.fechaHoraLlegada.formatted(date: .omitted, time: .shortened))
                         .font(.caption.bold())
                 }
             }
             
             HStack {
                 Button {
-                    UIPasteboard.general.string = vuelo.localizador
+                    UIPasteboard.general.string = tren.localizador
                     copiado = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copiado = false }
                 } label: {
                     HStack {
-                        Text("Loc: \(vuelo.localizador)")
+                        Text("Loc: \(tren.localizador)")
                             .font(.caption.monospaced().bold())
                         Image(systemName: copiado ? "checkmark" : "doc.on.doc")
                             .font(.caption)
@@ -2088,9 +2175,9 @@ struct VueloCardView: View {
                 
                 Spacer()
                 
-                if let url = URL(string: vuelo.urlReserva), !vuelo.urlReserva.isEmpty {
+                if let url = URL(string: tren.urlReserva), !tren.urlReserva.isEmpty {
                     Link(destination: url) {
-                        Label("Check-in", systemImage: "arrow.up.right.square")
+                        Label("Billete", systemImage: "arrow.up.right.square")
                             .font(.caption.bold())
                     }
                     .buttonStyle(.borderedProminent)
@@ -2101,63 +2188,83 @@ struct VueloCardView: View {
     }
 }
 
-// ============================================================================
-// 8. MODALES Y VISTAS SECUNDARIAS
-// ============================================================================
-
-struct AgregarDocumentoSheet: View {
+struct AgregarTrenSheet: View {
     @EnvironmentObject var store: EscapadasStore
     @Environment(\.dismiss) var dismiss
     let escapada: Escapada
     
-    @State private var titulo = ""
-    @State private var tipo = "QR / Entrada"
-    @State private var codigoOUrl = ""
-    @State private var itemPicker: PhotosPickerItem? = nil
-    @State private var imagenBase64: String? = nil
-    @State private var imagenPreview: UIImage? = nil
+    @State private var trayecto = "Ida"
+    @State private var origen = ""
+    @State private var destino = ""
+    @State private var salida = Date()
+    @State private var llegada = Date()
+    @State private var operadora = "Renfe"
+    @State private var numeroTren = ""
+    @State private var localizador = ""
+    @State private var anden = ""
+    @State private var urlReserva = "https://www.renfe.com"
     
-    let tiposDocumento = ["QR / Entrada", "Billete", "Reserva", "Otro"]
+    let operadorasEspana = ["Renfe", "Iryo", "Ouigo", "Alvia / Avlo", "Otra"]
     
     var body: some View {
         NavigationStack {
             Form {
-                Section("Datos del documento") {
-                    TextField("Título (ej: Entrada Museo, QR Tren)", text: $titulo)
-                    Picker("Tipo", selection: $tipo) {
-                        ForEach(tiposDocumento, id: \.self) { t in
-                            Text(t).tag(t)
+                Section("Operadora de trenes (España)") {
+                    Picker("Operadora", selection: $operadora) {
+                        ForEach(operadorasEspana, id: \.self) { op in
+                            Text(op).tag(op)
                         }
                     }
-                    TextField("Código o enlace opcional", text: $codigoOUrl)
-                        .autocapitalization(.none)
-                }
-                
-                Section("Imagen / Captura de QR") {
-                    PhotosPicker(selection: $itemPicker, matching: .images) {
-                        Label(imagenPreview == nil ? "Elegir captura o foto de QR" : "Cambiar imagen", systemImage: "photo.on.rectangle")
+                    .onChange(of: operadora) { _, nuevaOp in
+                        if nuevaOp == "Iryo" {
+                            urlReserva = "https://iryo.eu"
+                        } else if nuevaOp == "Ouigo" {
+                            urlReserva = "https://www.ouigo.com/es"
+                        } else if nuevaOp.contains("Renfe") || nuevaOp.contains("Alvia") {
+                            urlReserva = "https://www.renfe.com"
+                        }
                     }
                     
-                    if let uiImg = imagenPreview {
-                        Image(uiImage: uiImg)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 220)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    HStack(spacing: 8) {
+                        if let u1 = URL(string: "https://www.renfe.com") {
+                            Link("Renfe", destination: u1).font(.caption.bold()).buttonStyle(.bordered)
+                        }
+                        if let u2 = URL(string: "https://iryo.eu") {
+                            Link("Iryo", destination: u2).font(.caption.bold()).buttonStyle(.bordered)
+                        }
+                        if let u3 = URL(string: "https://www.ouigo.com/es") {
+                            Link("Ouigo", destination: u3).font(.caption.bold()).buttonStyle(.bordered)
+                        }
                     }
+                }
+                
+                Section("Trayecto y horario") {
+                    Picker("Trayecto", selection: $trayecto) {
+                        Text("Ida").tag("Ida")
+                        Text("Vuelta").tag("Vuelta")
+                    }
+                    TextField("Estación origen (ej: Madrid Atocha)", text: $origen)
+                    TextField("Estación destino (ej: Barcelona Sants)", text: $destino)
+                    DatePicker("Salida", selection: $salida)
+                    DatePicker("Llegada", selection: $llegada)
+                }
+                
+                Section("Billete y localizador") {
+                    TextField("Nº de tren (opcional)", text: $numeroTren)
+                        .autocapitalization(.allCharacters)
+                    TextField("Localizador / Billete", text: $localizador)
+                        .autocapitalization(.allCharacters)
+                    TextField("Andén (opcional)", text: $anden)
+                    TextField("Enlace de reserva", text: $urlReserva)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
                 }
             }
-            .navigationTitle("Nuevo documento")
+            .navigationTitle("Añadir tren")
             .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: itemPicker) { _, nuevoItem in
-                guard let item = nuevoItem else { return }
-                Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let img = UIImage(data: data) {
-                        imagenPreview = img
-                        imagenBase64 = UtilidadImagen.comprimirParaNube(img)
-                    }
-                }
+            .onAppear {
+                salida = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: escapada.fechaInicio) ?? escapada.fechaInicio
+                llegada = Calendar.current.date(byAdding: .minute, value: 165, to: salida) ?? salida
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2165,18 +2272,25 @@ struct AgregarDocumentoSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
-                        let docNuevo = DocumentoBoveda(
-                            titulo: titulo.trimmingCharacters(in: .whitespacesAndNewlines),
-                            tipo: tipo,
-                            codigoOUrl: codigoOUrl.trimmingCharacters(in: .whitespacesAndNewlines),
-                            imagenBase64: imagenBase64
+                        let nuevoTren = TrenViaje(
+                            trayecto: trayecto,
+                            origen: origen.trimmingCharacters(in: .whitespacesAndNewlines),
+                            destino: destino.trimmingCharacters(in: .whitespacesAndNewlines),
+                            fechaHoraSalida: salida,
+                            fechaHoraLlegada: llegada,
+                            operadora: operadora,
+                            numeroTren: numeroTren.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+                            localizador: localizador.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "SIN-LOC" : localizador.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+                            anden: anden.trimmingCharacters(in: .whitespacesAndNewlines),
+                            urlReserva: urlReserva.trimmingCharacters(in: .whitespacesAndNewlines)
                         )
                         var copia = escapada
-                        copia.documentos.append(docNuevo)
+                        copia.tieneTrenes = true
+                        copia.trenes.append(nuevoTren)
                         store.actualizarEscapada(copia)
                         dismiss()
                     }
-                    .disabled(titulo.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(origen.trimmingCharacters(in: .whitespaces).isEmpty || destino.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
@@ -2404,6 +2518,11 @@ struct NuevaEscapadaSheet: View {
     @State private var pista = ""
     @State private var diasRevelarAntes = 0
     @State private var tieneVuelos = false
+    @State private var tieneTrenes = false
+    @State private var operadoraTren = "Renfe"
+    @State private var origenTren = ""
+    @State private var destinoTren = ""
+    @State private var localizadorTren = ""
     @State private var localizadorVuelo = ""
     @State private var numeroVuelo = ""
     @State private var horaSalidaVuelo = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
@@ -2443,43 +2562,33 @@ struct NuevaEscapadaSheet: View {
                 }
                 
                 Section {
-                    Toggle("✈️ ¿Este viaje incluye vuelos?", isOn: $tieneVuelos)
+                    Toggle("🚆 ¿Este viaje incluye tren?", isOn: $tieneTrenes)
                     
-                    if tieneVuelos {
-                        TextField("Código de reserva / localizador", text: $localizadorVuelo)
-                            .autocapitalization(.allCharacters)
-                        TextField("Nº de vuelo (ej: IB3140)", text: $numeroVuelo)
-                            .autocapitalization(.allCharacters)
-                        DatePicker("Hora de salida", selection: $horaSalidaVuelo, displayedComponents: .hourAndMinute)
-                        
-                        Button {
-                            Task { await autocompletarDesdeWeb() }
-                        } label: {
-                            HStack {
-                                if buscandoVuelo { ProgressView() }
-                                else { Image(systemName: "globe.europe.africa.fill") }
-                                Text(buscandoVuelo ? "Consultando aerolíneas..." : "Autocompletar origen y destino")
-                                    .font(.subheadline.bold())
+                    if tieneTrenes {
+                        Picker("Operadora (España)", selection: $operadoraTren) {
+                            Text("Renfe").tag("Renfe")
+                            Text("Iryo").tag("Iryo")
+                            Text("Ouigo").tag("Ouigo")
+                            Text("Alvia / Avlo").tag("Alvia / Avlo")
+                        }
+                        HStack(spacing: 8) {
+                            if let u1 = URL(string: "https://www.renfe.com") {
+                                Link("Renfe", destination: u1).font(.caption.bold()).buttonStyle(.bordered)
+                            }
+                            if let u2 = URL(string: "https://iryo.eu") {
+                                Link("Iryo", destination: u2).font(.caption.bold()).buttonStyle(.bordered)
+                            }
+                            if let u3 = URL(string: "https://www.ouigo.com/es") {
+                                Link("Ouigo", destination: u3).font(.caption.bold()).buttonStyle(.bordered)
                             }
                         }
-                        
-                        if !estadoAutocompletado.isEmpty {
-                            Text(estadoAutocompletado)
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-                        
-                        HStack {
-                            TextField("Origen (ej: MAD)", text: $origenVuelo)
-                                .autocapitalization(.allCharacters)
-                            Image(systemName: "arrow.right")
-                                .foregroundStyle(.secondary)
-                            TextField("Destino (ej: PRG)", text: $destinoVuelo)
-                                .autocapitalization(.allCharacters)
-                        }
+                        TextField("Estación origen", text: $origenTren)
+                        TextField("Estación destino", text: $destinoTren)
+                        TextField("Localizador del tren (opcional)", text: $localizadorTren)
+                            .autocapitalization(.allCharacters)
                     }
                 } header: {
-                    Text("Vuelos")
+                    Text("Trenes")
                 }
                 
                 Section {
@@ -2503,6 +2612,30 @@ struct NuevaEscapadaSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
                         var vuelosIniciales: [Vuelo] = []
+                        var trenesIniciales: [TrenViaje] = []
+                        if tieneTrenes && (!origenTren.isEmpty || !destinoTren.isEmpty || !localizadorTren.isEmpty) {
+                            let salidaTren = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: fechaInicio) ?? fechaInicio
+                            let llegadaTren = Calendar.current.date(byAdding: .minute, value: 165, to: salidaTren) ?? salidaTren
+                            let urlTren: String
+                            if operadoraTren == "Iryo" { urlTren = "https://iryo.eu" }
+                            else if operadoraTren == "Ouigo" { urlTren = "https://www.ouigo.com/es" }
+                            else { urlTren = "https://www.renfe.com" }
+                            
+                            trenesIniciales.append(
+                                TrenViaje(
+                                    trayecto: "Ida",
+                                    origen: origenTren.isEmpty ? "Origen" : origenTren,
+                                    destino: destinoTren.isEmpty ? destino : destinoTren,
+                                    fechaHoraSalida: salidaTren,
+                                    fechaHoraLlegada: llegadaTren,
+                                    operadora: operadoraTren,
+                                    numeroTren: "",
+                                    localizador: localizadorTren.isEmpty ? "SIN-LOC" : localizadorTren.uppercased(),
+                                    anden: "",
+                                    urlReserva: urlTren
+                                )
+                            )
+                        }
                         if tieneVuelos && (!origenVuelo.isEmpty || !destinoVuelo.isEmpty || !numeroVuelo.isEmpty || !localizadorVuelo.isEmpty) {
                             let comps = Calendar.current.dateComponents([.hour, .minute], from: horaSalidaVuelo)
                             let salidaExacta = Calendar.current.date(bySettingHour: comps.hour ?? 9, minute: comps.minute ?? 0, second: 0, of: fechaInicio) ?? fechaInicio
@@ -2531,11 +2664,13 @@ struct NuevaEscapadaSheet: View {
                             fechaFin: fechaFin,
                             icono: icono,
                             tieneVuelos: tieneVuelos,
+                            tieneTrenes: tieneTrenes,
                             esSorpresa: esSorpresa,
                             pistaSorpresa: pista,
                             diasRevelarSorpresaAntes: max(0, diasRevelarAntes),
                             recuerdo: "",
                             vuelos: vuelosIniciales,
+                            trenes: trenesIniciales,
                             checklist: [ItemChecklist(texto: "Revisar documentación", completado: false, asignadoA: "Ambos")],
                             ideas: []
                         )
@@ -2696,62 +2831,22 @@ struct AgregarVueloSheet: View {
 struct YaVividoView: View {
     @EnvironmentObject var store: EscapadasStore
     
-    private var totalDiasJuntos: Int {
-        var total = 0
-        for esc in store.escapadasPasadas {
-            total += esc.totalDias
-        }
-        return total
-    }
-    
-    private var totalVuelos: Int {
-        var total = 0
-        for esc in store.escapadasPasadas {
-            total += esc.vuelos.count
-        }
-        return total
-    }
-    
-    private var totalInvertido: Double {
+    private func totalGastadoEscapada(_ esc: Escapada) -> Double {
         var total = 0.0
-        for esc in store.escapadasPasadas {
-            for g in esc.gastos {
-                total += g.importe
-            }
+        for g in esc.gastos {
+            total += g.importe
         }
         return total
     }
     
     var body: some View {
         List {
-            Section {
-                VStack(spacing: 12) {
-                    HStack(spacing: 10) {
-                        StatMiniCard(valor: "\(store.escapadasPasadas.count)", etiqueta: "Escapadas", icono: "🗺️")
-                        StatMiniCard(valor: "\(totalDiasJuntos)", etiqueta: "Días juntos", icono: "🗓️")
-                        StatMiniCard(valor: "\(totalVuelos)", etiqueta: "Vuelos", icono: "✈️")
-                    }
-                    
-                    if totalInvertido > 0 {
-                        HStack {
-                            Text("Total invertido en escapadas vividas")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(String(format: "%.0f €", totalInvertido))
-                                .font(.caption.bold().monospacedDigit())
-                        }
-                    }
-                }
-            } header: {
-                Text("📊 Vuestra historia viajera")
-            }
-            
             if store.escapadasPasadas.isEmpty {
                 ContentUnavailableView("Aún no hay recuerdos", systemImage: "photo.on.rectangle.angled")
             } else {
                 Section("Recuerdos guardados") {
                     ForEach(store.escapadasPasadas) { esc in
+                        let gastado = totalGastadoEscapada(esc)
                         NavigationLink(value: esc) {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
@@ -2762,6 +2857,9 @@ struct YaVividoView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
+                                Text(String(format: "💶 Total gastado: %.2f €", gastado))
+                                    .font(.caption.bold().monospacedDigit())
+                                    .foregroundStyle(Color.accentColor)
                                 if !esc.recuerdo.isEmpty {
                                     Text("\"\(esc.recuerdo)\"")
                                         .font(.caption)
@@ -3066,10 +3164,13 @@ struct AgregarGastoSheet: View {
                                 } else {
                                     Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
                                         .foregroundStyle(Color.accentColor)
-                                    Text("Equivale a \(String(format: "%.2f €", importeEnEuros))")
-                                        .font(.caption.bold())
+                                    Text(String(format: "%.2f %@ ↔ %.2f €", importeNumerico, monedaSeleccionada, importeEnEuros))
+                                        .font(.caption.bold().monospacedDigit())
                                 }
                             }
+                            Text(String(format: "1 %@ = %.4f € · 1 € ≈ %.2f %@", monedaSeleccionada, tasaAEuros, tasaAEuros > 0 ? (1.0 / tasaAEuros) : 0, monedaSeleccionada))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                             
                             if importeNumerico > 0, let googleUrl = ServicioDivisas.urlGoogleFinanzas(cantidad: importeNumerico, desde: monedaSeleccionada) {
                                 Link(destination: googleUrl) {
