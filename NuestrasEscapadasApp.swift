@@ -2093,6 +2093,161 @@ struct DetalleEscapadaView: View {
             }
             
             Section {
+                Button(role: .destructive) {
+                    store.eliminarEscapada(escapada)
+                    dismiss()
+                } label: {
+                    Label("Eliminar escapada", systemImage: "trash")
+                }
+            }
+        }
+        .navigationTitle(escapada.titulo)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: "\(escapada.id.uuidString)-\(escapada.destino)") {
+            guard !sorpresaBloqueada, !escapada.yaVivida else { return }
+            cargandoClima = true
+            previsionClima = await ServicioClima.obtenerPrevision(destino: escapada.destino, fechaInicio: escapada.fechaInicio)
+            cargandoClima = false
+        }
+    }
+    
+    private func calcularTotalesGastos(_ gastos: [GastoViaje]) -> (total: Double, yo: Double, tu: Double) {
+        var total = 0.0
+        var yo = 0.0
+        var tu = 0.0
+        for g in gastos {
+            total += g.importe
+            if g.pagadoPor == "Yo" {
+                yo += g.importe
+            } else if g.pagadoPor == "Tú" {
+                tu += g.importe
+            }
+        }
+        return (total, yo, tu)
+    }
+}
+
+struct VueloCardView: View {
+    let vuelo: Vuelo
+    @State private var copiado = false
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text(vuelo.trayecto.uppercased())
+                    .font(.caption2.bold())
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(Capsule())
+                
+                Text("\(vuelo.aerolinea) · \(vuelo.numeroVuelo)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            
+            HStack {
+                VStack(alignment: .leading) {
+                    Text(vuelo.origen)
+                        .font(.title2.bold())
+                    Text(vuelo.fechaHoraSalida.formatted(date: .omitted, time: .shortened))
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.accentColor)
+                }
+                Spacer()
+                Image(systemName: "airplane")
+                    .foregroundStyle(Color.accentColor)
+                Spacer()
+                VStack(alignment: .trailing) {
+                    Text(vuelo.destino)
+                        .font(.title2.bold())
+                    Text(vuelo.fechaHoraLlegada.formatted(date: .omitted, time: .shortened))
+                        .font(.caption.bold())
+                }
+            }
+            
+            HStack {
+                Button {
+                    UIPasteboard.general.string = vuelo.localizador
+                    copiado = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copiado = false }
+                } label: {
+                    HStack {
+                        Text("Loc: \(vuelo.localizador)")
+                            .font(.caption.monospaced().bold())
+                        Image(systemName: copiado ? "checkmark" : "doc.on.doc")
+                            .font(.caption)
+                    }
+                }
+                .buttonStyle(.bordered)
+                
+                Spacer()
+                
+                if let url = URL(string: vuelo.urlReserva), !vuelo.urlReserva.isEmpty {
+                    Link(destination: url) {
+                        Label("Check-in", systemImage: "arrow.up.right.square")
+                            .font(.caption.bold())
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+struct AgregarDocumentoSheet: View {
+    @EnvironmentObject var store: EscapadasStore
+    @Environment(\.dismiss) var dismiss
+    let escapada: Escapada
+    
+    @State private var titulo = ""
+    @State private var tipo = "Entrada / QR"
+    @State private var codigoOUrl = ""
+    
+    let tipos = ["Entrada / QR", "Reserva", "Seguro", "Otro"]
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Documento") {
+                    TextField("Título", text: $titulo)
+                    Picker("Tipo", selection: $tipo) {
+                        ForEach(tipos, id: \.self) { t in
+                            Text(t).tag(t)
+                        }
+                    }
+                    TextField("Código o enlace", text: $codigoOUrl)
+                        .autocapitalization(.none)
+                }
+            }
+            .navigationTitle("Añadir documento")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar") {
+                        let doc = DocumentoBoveda(
+                            titulo: titulo.trimmingCharacters(in: .whitespacesAndNewlines),
+                            tipo: tipo,
+                            codigoOUrl: codigoOUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+                        )
+                        var copia = escapada
+                        copia.documentos.append(doc)
+                        store.actualizarEscapada(copia)
+                        dismiss()
+                    }
+                    .disabled(titulo.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+}
+
 struct SelectorEstrellasFila: View {
     let titulo: String
     @Binding var puntuacion: Int
