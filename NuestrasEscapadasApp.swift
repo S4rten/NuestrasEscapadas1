@@ -3,6 +3,7 @@ import FirebaseCore
 import FirebaseFirestore
 import MapKit
 import UserNotifications
+import PhotosUI
 
 // ============================================================================
 // 1. DIVISAS DE EUROPA, AMÉRICA Y ASIA + MODELO DE DATOS
@@ -224,514 +225,137 @@ enum ConvertidorDivisasOnline {
     }
 }
 
-struct AlojamientoInfo: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var nombre: String = ""
-    var direccion: String = ""
-    var horaCheckIn: String = "15:00"
-    var horaCheckOut: String = "11:00"
-    var codigoReserva: String = ""
-    var urlReserva: String = ""
-
-    var tieneDatos: Bool {
-        !nombre.trimmingCharacters(in: .whitespaces).isEmpty ||
-        !direccion.trimmingCharacters(in: .whitespaces).isEmpty ||
-        !codigoReserva.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-}
-
-struct GastoViaje: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var concepto: String
-    var importe: Double                 // Equivalente en EUR para balances y totales
-    var importeOriginal: Double? = nil  // Importe en la divisa en la que se pagó
-    var monedaCodigo: String = "EUR"    // Código ISO de la divisa pagada
-    var tasaCambioAEuro: Double? = nil  // Tasa aplicada al registrar el gasto
-    var pagadoPor: String               // "Yo" o "Tú"
-    var categoria: String               // "Comida", "Transporte", "Alojamiento", "Entradas", "Otros"
-    var fecha: Date = Date()
-
-    var importeEnDivisaOriginal: Double {
-        importeOriginal ?? importe
-    }
-
-    var textoOriginal: String {
-        CatalogoDivisas.formatearOriginal(importe: importeEnDivisaOriginal, codigoDivisa: monedaCodigo)
-    }
-
-    var textoEuros: String {
-        String(format: "%.2f €", importe)
-    }
-}
-
-struct Vuelo: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var trayecto: String          // "Ida", "Vuelta", "Escala"
-    var origen: String            // Ej: "MAD"
-    var destino: String           // Ej: "PRG"
-    var fechaHoraSalida: Date
-    var fechaHoraLlegada: Date
-    var aerolinea: String
-    var numeroVuelo: String
-    var localizador: String
-    var terminalPuerta: String
-    var urlReserva: String
-}
-
-struct BilleteTren: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var operador: String          // "Renfe", "Iryo", "Ouigo", etc.
-    var trayecto: String          // "Ida", "Vuelta"
-    var estacionOrigen: String    // Ej: "Madrid Atocha"
-    var estacionDestino: String   // Ej: "Barcelona Sants"
-    var fechaHoraSalida: Date
-    var fechaHoraLlegada: Date
-    var numeroTren: String
-    var localizador: String
-    var cocheAsiento: String
-    var urlReserva: String
-}
-
-struct ItemChecklist: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var texto: String
-    var completado: Bool
-    var asignadoA: String         // "Ambos", "Yo", "Tú"
-}
-
-struct ActividadDia: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var diaIndex: Int             // 1, 2, 3... según los días del viaje
-    var nombreSitio: String
-    var urlSitio: String
-}
-
-struct ValoracionViaje: Codable, Hashable {
-    var experienciaCiudad: Int = 0
-    var museosCultura: Int = 0
-    var gastronomia: Int = 0
-    var alojamientoDescanso: Int = 0
-    var momentosJuntos: Int = 0
-}
-
-struct DestinoWishlist: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var nombreDestino: String
-    var paisORegion: String = ""
-    var categoria: String = "Ciudad"
-    var temporadaIdeal: String = "Cualquier época"
-    var notaOEnlace: String = ""
-    var icono: String = "✨"
-    var prioridadAlta: Bool = false
-    var fechaAgregado: Date = Date()
-}
-
-struct Escapada: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var titulo: String
-    var destino: String
-    var fechaInicio: Date
-    var fechaFin: Date
-    var icono: String
-    var tieneVuelos: Bool = true
-    var tieneTrenes: Bool = false
-    var esSorpresa: Bool
-    var pistaSorpresa: String
-    var diasRevelarSorpresaAntes: Int = 0
-    var recuerdo: String
-    var momentoFavorito: String = ""
-    var valoracion: ValoracionViaje = ValoracionViaje()
-    var alojamiento: AlojamientoInfo = AlojamientoInfo()
-    var alojamientos: [AlojamientoInfo] = []
-    var gastos: [GastoViaje] = []
-    var vuelos: [Vuelo]
-    var trenes: [BilleteTren] = []
-    var checklist: [ItemChecklist]
-    var itinerario: [ActividadDia] = []
-    var ideas: [String]
-
-    var todosLosAlojamientos: [AlojamientoInfo] {
-        var lista: [AlojamientoInfo] = []
-        if alojamiento.tieneDatos {
-            lista.append(alojamiento)
-        }
-        for item in alojamientos where item.tieneDatos {
-            if !lista.contains(where: { $0.id == item.id }) {
-                lista.append(item)
-            }
-        }
-        return lista
-    }
-
-    var yaVivida: Bool {
-        let finDelDia = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: fechaFin)) ?? fechaFin
-        return Date() >= finDelDia
-    }
-
-    var sorpresaDesbloqueada: Bool {
-        let inicioDelDia = Calendar.current.startOfDay(for: fechaInicio)
-        let diasAdelanto = max(0, diasRevelarSorpresaAntes)
-        let fechaRevelacion = Calendar.current.date(byAdding: .day, value: -diasAdelanto, to: inicioDelDia) ?? inicioDelDia
-        return Date() >= fechaRevelacion
-    }
-
-    var fechaRevelacionSorpresa: Date {
-        let inicioDelDia = Calendar.current.startOfDay(for: fechaInicio)
-        let diasAdelanto = max(0, diasRevelarSorpresaAntes)
-        return Calendar.current.date(byAdding: .day, value: -diasAdelanto, to: inicioDelDia) ?? inicioDelDia
-    }
-
-    var totalDias: Int {
-        let inicio = Calendar.current.startOfDay(for: fechaInicio)
-        let fin = Calendar.current.startOfDay(for: fechaFin)
-        let diff = Calendar.current.dateComponents([.day], from: inicio, to: fin).day ?? 0
-        return max(1, diff + 1)
-    }
-
-    func fechaParaDia(_ diaIndex: Int) -> Date {
-        Calendar.current.date(byAdding: .day, value: diaIndex - 1, to: fechaInicio) ?? fechaInicio
-    }
-
-    var progresoChecklist: Double {
-        guard !checklist.isEmpty else { return 0 }
-        let completados = checklist.filter { $0.completado }.count
-        return Double(completados) / Double(checklist.count)
-    }
-
-    init(
-        id: UUID = UUID(),
-        titulo: String,
-        destino: String,
-        fechaInicio: Date,
-        fechaFin: Date,
-        icono: String,
-        tieneVuelos: Bool = true,
-        tieneTrenes: Bool = false,
-        esSorpresa: Bool,
-        pistaSorpresa: String,
-        diasRevelarSorpresaAntes: Int = 0,
-        recuerdo: String,
-        momentoFavorito: String = "",
-        valoracion: ValoracionViaje = ValoracionViaje(),
-        alojamiento: AlojamientoInfo = AlojamientoInfo(),
-        alojamientos: [AlojamientoInfo] = [],
-        gastos: [GastoViaje] = [],
-        vuelos: [Vuelo],
-        trenes: [BilleteTren] = [],
-        checklist: [ItemChecklist],
-        itinerario: [ActividadDia] = [],
-        ideas: [String]
-    ) {
-        self.id = id
-        self.titulo = titulo
-        self.destino = destino
-        self.fechaInicio = fechaInicio
-        self.fechaFin = fechaFin
-        self.icono = icono
-        self.tieneVuelos = tieneVuelos
-        self.tieneTrenes = tieneTrenes
-        self.esSorpresa = esSorpresa
-        self.pistaSorpresa = pistaSorpresa
-        self.diasRevelarSorpresaAntes = max(0, diasRevelarSorpresaAntes)
-        self.recuerdo = recuerdo
-        self.momentoFavorito = momentoFavorito
-        self.valoracion = valoracion
-        self.alojamiento = alojamiento
-        self.alojamientos = alojamientos
-        self.gastos = gastos
-        self.vuelos = vuelos
-        self.trenes = trenes
-        self.checklist = checklist
-        self.itinerario = itinerario
-        self.ideas = ideas
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, tieneTrenes, esSorpresa, pistaSorpresa
-        case diasRevelarSorpresaAntes, recuerdo, momentoFavorito, valoracion, alojamiento, alojamientos, gastos
-        case vuelos, trenes, checklist, itinerario, ideas
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        titulo = try c.decode(String.self, forKey: .titulo)
-        destino = try c.decode(String.self, forKey: .destino)
-        fechaInicio = try c.decode(Date.self, forKey: .fechaInicio)
-        fechaFin = try c.decode(Date.self, forKey: .fechaFin)
-        icono = try c.decodeIfPresent(String.self, forKey: .icono) ?? "✈️"
-        vuelos = try c.decodeIfPresent([Vuelo].self, forKey: .vuelos) ?? []
-        trenes = try c.decodeIfPresent([BilleteTren].self, forKey: .trenes) ?? []
-        tieneVuelos = try c.decodeIfPresent(Bool.self, forKey: .tieneVuelos) ?? !vuelos.isEmpty
-        tieneTrenes = try c.decodeIfPresent(Bool.self, forKey: .tieneTrenes) ?? !trenes.isEmpty
-        esSorpresa = try c.decodeIfPresent(Bool.self, forKey: .esSorpresa) ?? false
-        pistaSorpresa = try c.decodeIfPresent(String.self, forKey: .pistaSorpresa) ?? ""
-        diasRevelarSorpresaAntes = try c.decodeIfPresent(Int.self, forKey: .diasRevelarSorpresaAntes) ?? 0
-        recuerdo = try c.decodeIfPresent(String.self, forKey: .recuerdo) ?? ""
-        momentoFavorito = try c.decodeIfPresent(String.self, forKey: .momentoFavorito) ?? ""
-        valoracion = try c.decodeIfPresent(ValoracionViaje.self, forKey: .valoracion) ?? ValoracionViaje()
-        alojamiento = try c.decodeIfPresent(AlojamientoInfo.self, forKey: .alojamiento) ?? AlojamientoInfo()
-        alojamientos = try c.decodeIfPresent([AlojamientoInfo].self, forKey: .alojamientos) ?? []
-        gastos = try c.decodeIfPresent([GastoViaje].self, forKey: .gastos) ?? []
-        checklist = try c.decodeIfPresent([ItemChecklist].self, forKey: .checklist) ?? []
-        itinerario = try c.decodeIfPresent([ActividadDia].self, forKey: .itinerario) ?? []
-        ideas = try c.decodeIfPresent([String].self, forKey: .ideas) ?? []
-    }
-}
-
 // ============================================================================
-// OPERADORES DE TRENES ESPAÑOLES
+// PREVISIÓN DEL TIEMPO EN DESTINO (Open-Meteo + Geocoding)
 // ============================================================================
 
-struct OperadorTrenEspana: Identifiable {
-    let id: String
-    let nombre: String
-    let descripcion: String
-    let urlWeb: String
-}
+struct PrevisionDiaDestino: Identifiable {
+    let id = UUID()
+    let fechaTexto: String
+    let tempMax: Double
+    let tempMin: Double
+    let codigoWMO: Int
 
-enum TrenesEspana {
-    static let operadores: [OperadorTrenEspana] = [
-        OperadorTrenEspana(
-            id: "renfe",
-            nombre: "Renfe",
-            descripcion: "AVE, Avlo, Alvia y Cercanías en toda España",
-            urlWeb: "https://www.renfe.com/es/es"
-        ),
-        OperadorTrenEspana(
-            id: "iryo",
-            nombre: "Iryo",
-            descripcion: "Alta velocidad con salidas desde Madrid, Barcelona, Sevilla, Valencia y más",
-            urlWeb: "https://iryo.eu/es/home"
-        ),
-        OperadorTrenEspana(
-            id: "ouigo",
-            nombre: "Ouigo",
-            descripcion: "Trenes de alta velocidad entre principales ciudades españolas",
-            urlWeb: "https://www.ouigo.com/es/"
-        )
-    ]
+    var iconoSF: String {
+        switch codigoWMO {
+        case 0: return "sun.max.fill"
+        case 1, 2: return "cloud.sun.fill"
+        case 3: return "cloud.fill"
+        case 45, 48: return "cloud.fog.fill"
+        case 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82: return "cloud.rain.fill"
+        case 71, 73, 75, 77, 85, 86: return "cloud.snow.fill"
+        case 95, 96, 99: return "cloud.bolt.rain.fill"
+        default: return "cloud.sun.fill"
+        }
+    }
 
-    static func urlParaOperador(_ nombre: String) -> String {
-        let lower = nombre.lowercased()
-        if lower.contains("iryo") { return "https://iryo.eu/es/home" }
-        if lower.contains("ouigo") { return "https://www.ouigo.com/es/" }
-        return "https://www.renfe.com/es/es"
+    var descripcion: String {
+        switch codigoWMO {
+        case 0: return "Despejado"
+        case 1, 2: return "Intervalos nubosos"
+        case 3: return "Nublado"
+        case 45, 48: return "Niebla"
+        case 51, 53, 55, 61, 63, 80, 81: return "Lluvia"
+        case 65, 82: return "Chubascos fuertes"
+        case 71, 73, 75, 85, 86: return "Nieve"
+        case 95, 96, 99: return "Tormenta"
+        default: return "Variable"
+        }
     }
 }
 
-// ============================================================================
-// 2. BUSCADOR DE VUELOS ONLINE (Consulta web de estado de vuelos y aerolíneas)
-// ============================================================================
+enum ServicioClimaDestino {
+    static func obtenerPrevision(destino: String, fechaInicio: Date, fechaFin: Date) async -> [PrevisionDiaDestino] {
+        let limpio = destino.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !limpio.isEmpty else { return [] }
 
-struct ResultadoBusquedaVuelo {
-    var aerolinea: String
-    var origen: String
-    var destino: String
-    var terminal: String
-    var duracionMin: Int
-    var urlReserva: String
-    var urlEstadoWeb: String
-    var fuente: String
-}
-
-enum BuscadorVuelosWeb {
-    static func buscar(
-        numeroVuelo: String,
-        localizador: String,
-        fechaSalida: Date,
-        trayecto: String,
-        destinoViaje: String
-    ) async -> ResultadoBusquedaVuelo? {
-        let code = numeroVuelo
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .uppercased()
-            .replacingOccurrences(of: " ", with: "")
-        let loc = localizador
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .uppercased()
-
-        guard !code.isEmpty || !loc.isEmpty else { return nil }
-
-        let prefijo = String(code.prefix(2))
-        let infoAerolinea = datosAerolinea(prefijo: prefijo)
-        let webFlightAware = code.count >= 4 ? "https://es.flightaware.com/live/flight/\(code)" : "https://www.flightradar24.com"
-
-        if code.count >= 4, let online = await consultarWebEstadoVuelo(
-            codigoVuelo: code,
-            aerolineaDefault: infoAerolinea.nombre,
-            urlReservaDefault: infoAerolinea.url,
-            webEstado: webFlightAware
-        ) {
-            return online
+        let coordenada: CLLocationCoordinate2D?
+        if let conocida = coordenadaRapida(limpio) {
+            coordenada = conocida
+        } else {
+            let geocoder = CLGeocoder()
+            let lugares = try? await geocoder.geocodeAddressString(limpio)
+            coordenada = lugares?.first?.location?.coordinate
         }
 
-        if let rutaConocida = catalogoRutas()[code] {
-            return ResultadoBusquedaVuelo(
-                aerolinea: infoAerolinea.nombre,
-                origen: rutaConocida.origen,
-                destino: rutaConocida.destino,
-                terminal: rutaConocida.terminal,
-                duracionMin: rutaConocida.duracionMin,
-                urlReserva: construirUrlReserva(aerolinea: infoAerolinea.nombre, loc: loc, urlBase: infoAerolinea.url),
-                urlEstadoWeb: webFlightAware,
-                fuente: "Base de rutas de aerolíneas"
-            )
-        }
+        guard let coord = coordenada else { return [] }
 
-        let iataDestino = iataDesdeTexto(destinoViaje)
-        let origenCalc = (trayecto == "Vuelta") ? (iataDestino.isEmpty ? "PRG" : iataDestino) : "MAD"
-        let destinoCalc = (trayecto == "Vuelta") ? "MAD" : iataDestino
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
 
-        if !origenCalc.isEmpty && !destinoCalc.isEmpty {
-            return ResultadoBusquedaVuelo(
-                aerolinea: infoAerolinea.nombre,
-                origen: origenCalc,
-                destino: destinoCalc,
-                terminal: infoAerolinea.terminal,
-                duracionMin: 150,
-                urlReserva: construirUrlReserva(aerolinea: infoAerolinea.nombre, loc: loc, urlBase: infoAerolinea.url),
-                urlEstadoWeb: webFlightAware,
-                fuente: loc.isEmpty ? "Aerolínea \(infoAerolinea.nombre)" : "Localizador \(loc)"
-            )
-        }
+        let startStr = formatter.string(from: fechaInicio)
+        let endStr = formatter.string(from: max(fechaInicio, fechaFin))
 
-        if !infoAerolinea.nombre.isEmpty {
-            return ResultadoBusquedaVuelo(
-                aerolinea: infoAerolinea.nombre,
-                origen: trayecto == "Vuelta" ? "" : "MAD",
-                destino: trayecto == "Vuelta" ? "MAD" : "",
-                terminal: infoAerolinea.terminal,
-                duracionMin: 140,
-                urlReserva: construirUrlReserva(aerolinea: infoAerolinea.nombre, loc: loc, urlBase: infoAerolinea.url),
-                urlEstadoWeb: webFlightAware,
-                fuente: infoAerolinea.nombre
-            )
-        }
+        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(coord.latitude)&longitude=\(coord.longitude)&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=\(startStr)&end_date=\(endStr)"
+        guard let url = URL(string: urlString) else { return [] }
 
-        return nil
-    }
-
-    private static func consultarWebEstadoVuelo(
-        codigoVuelo: String,
-        aerolineaDefault: String,
-        urlReservaDefault: String,
-        webEstado: String
-    ) async -> ResultadoBusquedaVuelo? {
-        guard let url = URL(string: "https://api.adsbdb.com/v0/callsign/\(codigoVuelo)") else { return nil }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 4.0
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 5.0
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-
-            let parsedObject = try JSONSerialization.jsonObject(with: data)
-            guard let json = parsedObject as? [String: Any],
-                  let resp = json["response"] as? [String: Any],
-                  let flightroute = resp["flightroute"] as? [String: Any] else {
-                return nil
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { return [] }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let daily = json["daily"] as? [String: Any],
+                  let times = daily["time"] as? [String],
+                  let codes = daily["weather_code"] as? [Int],
+                  let maxTemps = daily["temperature_2m_max"] as? [Double],
+                  let minTemps = daily["temperature_2m_min"] as? [Double] else {
+                return []
             }
 
-            let originDict = flightroute["origin"] as? [String: Any]
-            let destDict = flightroute["destination"] as? [String: Any]
-            let airlineDict = flightroute["airline"] as? [String: Any]
+            let count = min(times.count, min(codes.count, min(maxTemps.count, minTemps.count)))
+            var resultados: [PrevisionDiaDestino] = []
 
-            let iataOrigen = (originDict?["iata_code"] as? String) ?? ""
-            let iataDestino = (destDict?["iata_code"] as? String) ?? ""
-            let nombreAerolinea = (airlineDict?["name"] as? String) ?? aerolineaDefault
+            let outFormatter = DateFormatter()
+            outFormatter.locale = Locale(identifier: "es_ES")
+            outFormatter.dateFormat = "EEE d"
 
-            if !iataOrigen.isEmpty && !iataDestino.isEmpty {
-                return ResultadoBusquedaVuelo(
-                    aerolinea: nombreAerolinea,
-                    origen: iataOrigen.uppercased(),
-                    destino: iataDestino.uppercased(),
-                    terminal: "",
-                    duracionMin: 150,
-                    urlReserva: urlReservaDefault,
-                    urlEstadoWeb: webEstado,
-                    fuente: "Web de vuelos en vivo"
+            for idx in 0..<count {
+                let etiqueta: String
+                if let fechaDia = formatter.date(from: times[idx]) {
+                    etiqueta = outFormatter.string(from: fechaDia).capitalized
+                } else {
+                    etiqueta = times[idx]
+                }
+                resultados.append(
+                    PrevisionDiaDestino(
+                        fechaTexto: etiqueta,
+                        tempMax: maxTemps[idx],
+                        tempMin: minTemps[idx],
+                        codigoWMO: codes[idx]
+                    )
                 )
             }
+            return resultados
         } catch {
-            return nil
+            return []
+        }
+    }
+
+    private static func coordenadaRapida(_ texto: String) -> CLLocationCoordinate2D? {
+        let lower = texto.lowercased()
+        let tabla: [(String, Double, Double)] = [
+            ("praga", 50.0755, 14.4378),
+            ("jerte", 40.2236, -5.7519),
+            ("brihuega", 40.7606, -2.8692),
+            ("madrid", 40.4168, -3.7038),
+            ("barcelona", 41.3874, 2.1686),
+            ("roma", 41.9028, 12.4964),
+            ("paris", 48.8566, 2.3522),
+            ("parís", 48.8566, 2.3522),
+            ("londres", 51.5072, -0.1276),
+            ("lisboa", 38.7223, -9.1393),
+            ("oporto", 41.1579, -8.6291),
+            ("sevilla", 37.3891, -5.9845),
+            ("valencia", 39.4699, -0.3763)
+        ]
+        for (clave, lat, lon) in tabla where lower.contains(clave) {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
         }
         return nil
-    }
-
-    private static func construirUrlReserva(aerolinea: String, loc: String, urlBase: String) -> String {
-        guard !loc.isEmpty else { return urlBase }
-        let encoded = loc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? loc
-        let lower = aerolinea.lowercased()
-        if lower.contains("iberia") {
-            return "https://www.iberia.com/es/gestion-reservas/?pnr=\(encoded)"
-        } else if lower.contains("ryanair") {
-            return "https://www.ryanair.com/es/es/mybookings"
-        } else if lower.contains("vueling") {
-            return "https://www.vueling.com/es/servicios-vueling/gestiona-tu-reserva"
-        } else if lower.contains("air europa") {
-            return "https://www.aireuropa.com/es/es/aea/gestiona-tu-reserva.html"
-        }
-        return urlBase.isEmpty ? "https://www.checkmytrip.com/cmt/apf/cmtng/index?pnr=\(encoded)" : urlBase
-    }
-
-    private static func datosAerolinea(prefijo: String) -> (nombre: String, url: String, terminal: String) {
-        let mapa: [String: (String, String, String)] = [
-            "IB": ("Iberia", "https://www.iberia.com/es/gestion-reservas/", "Terminal 4"),
-            "I2": ("Iberia Express", "https://www.iberiaexpress.com", "Terminal 4"),
-            "VY": ("Vueling", "https://www.vueling.com/es/servicios-vueling/gestiona-tu-reserva", "Terminal 1"),
-            "FR": ("Ryanair", "https://www.ryanair.com/es/es/mybookings", "Terminal Principal"),
-            "UX": ("Air Europa", "https://www.aireuropa.com", "Terminal 2"),
-            "U2": ("easyJet", "https://www.easyjet.com/es", "Terminal 1"),
-            "LH": ("Lufthansa", "https://www.lufthansa.com", "Terminal 2"),
-            "AF": ("Air France", "https://wwws.airfrance.es", "Terminal 2"),
-            "BA": ("British Airways", "https://www.britishairways.com", "Terminal 4S"),
-            "KL": ("KLM", "https://www.klm.es", "Terminal 2"),
-            "TP": ("TAP Air Portugal", "https://www.flytap.com", "Terminal 2"),
-            "AZ": ("ITA Airways", "https://www.ita-airways.com", "Terminal 2"),
-            "W6": ("Wizz Air", "https://wizzair.com", "Terminal 1"),
-            "DY": ("Norwegian", "https://www.norwegian.com", "Terminal 1")
-        ]
-        return mapa[prefijo] ?? ("", "https://www.checkmytrip.com", "")
-    }
-
-    static func iataDesdeTexto(_ texto: String) -> String {
-        let lower = texto.lowercased()
-        let mapaCiudades: [(clave: String, iata: String)] = [
-            ("praga", "PRG"), ("cracovia", "KRK"), ("varsovia", "WAW"),
-            ("roma", "FCO"), ("milan", "MXP"), ("milán", "MXP"), ("venecia", "VCE"), ("napoles", "NAP"), ("nápoles", "NAP"),
-            ("paris", "ORY"), ("parís", "ORY"), ("lyon", "LYS"), ("niza", "NCE"),
-            ("londres", "LHR"), ("edimburgo", "EDI"), ("dublin", "DUB"), ("dublín", "DUB"),
-            ("lisboa", "LIS"), ("oporto", "OPO"), ("faro", "FAO"),
-            ("amsterdam", "AMS"), ("ámsterdam", "AMS"), ("bruselas", "BRU"),
-            ("berlin", "BER"), ("berlín", "BER"), ("munich", "MUC"), ("múnich", "MUC"), ("frankfurt", "FRA"),
-            ("viena", "VIE"), ("budapest", "BUD"), ("atenas", "ATH"),
-            ("estambul", "IST"), ("marrakech", "RAK"), ("tenerife", "TFN"), ("gran canaria", "LPA"),
-            ("mallorca", "PMI"), ("palma", "PMI"), ("ibiza", "IBZ"), ("menorca", "MAH"),
-            ("barcelona", "BCN"), ("madrid", "MAD"), ("sevilla", "SVQ"), ("malaga", "AGP"), ("málaga", "AGP"), ("valencia", "VLC")
-        ]
-        for item in mapaCiudades where lower.contains(item.clave) {
-            return item.iata
-        }
-        return ""
-    }
-
-    private static func catalogoRutas() -> [String: (origen: String, destino: String, duracionMin: Int, terminal: String)] {
-        [
-            "IB3140": ("MAD", "PRG", 175, "Terminal 4"),
-            "IB3141": ("PRG", "MAD", 180, "Terminal 2"),
-            "FR2418": ("KRK", "MAD", 215, "Terminal Principal"),
-            "FR2417": ("MAD", "KRK", 210, "Terminal 1"),
-            "VY1002": ("BCN", "FCO", 110, "Terminal 1"),
-            "VY1003": ("FCO", "BCN", 115, "Terminal 3"),
-            "UX1093": ("MAD", "ORY", 125, "Terminal 2"),
-            "UX1094": ("ORY", "MAD", 125, "Terminal 1"),
-            "IB3250": ("MAD", "FCO", 150, "Terminal 4"),
-            "IB3251": ("FCO", "MAD", 155, "Terminal 1"),
-            "IB3402": ("MAD", "ORY", 125, "Terminal 4"),
-            "IB3166": ("MAD", "LHR", 150, "Terminal 4S"),
-            "TP1015": ("MAD", "LIS", 80, "Terminal 2")
-        ]
     }
 }
 
@@ -1105,6 +729,10 @@ class EscapadasStore: ObservableObject {
                     ItemChecklist(texto: "DNI / Pasaportes en vigor", completado: true, asignadoA: "Ambos"),
                     ItemChecklist(texto: "Ropa térmica y guantes", completado: false, asignadoA: "Ambos")
                 ],
+                retosFotograficos: [
+                    RetoFotografico(titulo: "Un café con vistas"),
+                    RetoFotografico(titulo: "El plato más curioso del viaje")
+                ],
                 itinerario: [
                     ActividadDia(diaIndex: 1, nombreSitio: "Puente de Carlos", urlSitio: "https://www.prague.eu")
                 ],
@@ -1125,6 +753,9 @@ class EscapadasStore: ObservableObject {
                 vuelos: [],
                 checklist: [
                     ItemChecklist(texto: "Calzado cómodo", completado: false, asignadoA: "Ambos")
+                ],
+                retosFotograficos: [
+                    RetoFotografico(titulo: "Atardecer juntos")
                 ],
                 ideas: []
             )
@@ -1465,6 +1096,7 @@ struct DetalleEscapadaView: View {
     @State private var nuevoSitioURL = ""
     @State private var nuevoItemTexto = ""
     @State private var nuevoItemAsignado = "Ambos"
+    @State private var nuevoRetoTexto = ""
     @State private var nuevaIdeaTexto = ""
     @State private var mostrandoAgregarVuelo = false
     @State private var mostrandoAgregarTren = false
@@ -1548,6 +1180,12 @@ struct DetalleEscapadaView: View {
 
                 // Sección Plan por Días (oculta si la sorpresa sigue bloqueada)
                 if !sorpresaBloqueada {
+                    PrevisionTiempoDestinoSection(
+                        destino: escapada.destino,
+                        fechaInicio: escapada.fechaInicio,
+                        fechaFin: escapada.fechaFin
+                    )
+
                     Section {
                         if escapada.totalDias > 1 {
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -1577,640 +1215,147 @@ struct DetalleEscapadaView: View {
                             }
                         }
 
-                        // Formulario para añadir sitio y URL al día seleccionado
-                        VStack(spacing: 8) {
-                            TextField("Nombre del sitio o plan (ej: Museo del Prado)", text: $nuevoSitioNombre)
-                            HStack {
-                                TextField("URL opcional (ej: https://...)", text: $nuevoSitioURL)
-                                    .keyboardType(.URL)
-                                    .autocapitalization(.none)
-                                    .font(.caption)
+struct PrevisionTiempoDestinoSection: View {
+    let destino: String
+    let fechaInicio: Date
+    let fechaFin: Date
 
-                                Button {
-                                    let nombre = nuevoSitioNombre.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    guard !nombre.isEmpty else { return }
-                                    var urlLimpia = nuevoSitioURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    if !urlLimpia.isEmpty && !urlLimpia.hasPrefix("http") {
-                                        urlLimpia = "https://" + urlLimpia
-                                    }
-                                    var copia = escapada
-                                    copia.itinerario.append(
-                                        ActividadDia(
-                                            diaIndex: diaSeleccionado,
-                                            nombreSitio: nombre,
-                                            urlSitio: urlLimpia
-                                        )
-                                    )
-                                    store.actualizarEscapada(copia)
-                                    nuevoSitioNombre = ""
-                                    nuevoSitioURL = ""
-                                } label: {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.title3)
-                                }
-                                .disabled(nuevoSitioNombre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            }
-                        }
-                        .padding(.vertical, 4)
+    @State private var diasPrevision: [PrevisionDiaDestino] = []
+    @State private var cargando = false
 
-                        let actividadesDelDia = escapada.itinerario.filter { $0.diaIndex == diaSeleccionado }
-                        if actividadesDelDia.isEmpty {
-                            Text("Aún no hay sitios planeados para el Día \(diaSeleccionado).")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(actividadesDelDia) { act in
-                                HStack(spacing: 10) {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .foregroundStyle(Color.accentColor)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(act.nombreSitio)
-                                            .font(.subheadline.weight(.medium))
-                                        if let url = URL(string: act.urlSitio), !act.urlSitio.isEmpty {
-                                            Link(destination: url) {
-                                                Label(act.urlSitio.replacingOccurrences(of: "https://", with: ""), systemImage: "safari")
-                                                    .font(.caption)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                    }
-                                    Spacer()
-                                }
-                            }
-                            .onDelete { offsets in
-                                let idsABorrar = offsets.map { actividadesDelDia[$0].id }
-                                var copia = escapada
-                                copia.itinerario.removeAll { idsABorrar.contains($0.id) }
-                                store.actualizarEscapada(copia)
-                            }
-                        }
-                    } header: {
-                        Text(escapada.totalDias > 1 ? "Itinerario por días (Día \(diaSeleccionado))" : "Plan del día y sitios")
-                    }
-
-                    // Sección Vuelos (independiente de trenes)
-                    if escapada.tieneVuelos || !escapada.vuelos.isEmpty {
-                        Section {
-                            if escapada.vuelos.isEmpty {
-                                Text("Sin vuelos añadidos")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(escapada.vuelos) { vuelo in
-                                    VueloCardView(vuelo: vuelo)
-                                }
-                                .onDelete { offsets in
-                                    var copia = escapada
-                                    copia.vuelos.remove(atOffsets: offsets)
-                                    store.actualizarEscapada(copia)
-                                }
-                            }
-
-                            Button {
-                                mostrandoAgregarVuelo = true
-                            } label: {
-                                Label("Añadir vuelo", systemImage: "airplane.circle.fill")
-                            }
-                        } header: {
-                            Text("Vuelos y billetes")
-                        }
-                    } else {
-                        Section {
-                            Button {
-                                var copia = escapada
-                                copia.tieneVuelos = true
-                                store.actualizarEscapada(copia)
-                                mostrandoAgregarVuelo = true
-                            } label: {
-                                Label("Activar sección de vuelos", systemImage: "airplane")
-                                    .font(.caption)
-                            }
-                        }
-                    }
-
-                    // Sección Trenes (independiente de vuelos, con páginas españolas)
-                    if escapada.tieneTrenes || !escapada.trenes.isEmpty {
-                        Section {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(TrenesEspana.operadores) { op in
-                                        if let url = URL(string: op.urlWeb) {
-                                            Link(destination: url) {
-                                                Label(op.nombre, systemImage: "tram.fill")
-                                                    .font(.caption.bold())
-                                                    .padding(.horizontal, 12)
-                                                    .padding(.vertical, 7)
-                                                    .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                                                    .clipShape(Capsule())
-                                            }
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 2)
-                            }
-
-                            if escapada.trenes.isEmpty {
-                                Text("Sin billetes de tren añadidos todavía")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(escapada.trenes) { tren in
-                                    TrenCardView(tren: tren)
-                                }
-                                .onDelete { offsets in
-                                    var copia = escapada
-                                    copia.trenes.remove(atOffsets: offsets)
-                                    store.actualizarEscapada(copia)
-                                }
-                            }
-
-                            Button {
-                                mostrandoAgregarTren = true
-                            } label: {
-                                Label("Añadir billete de tren", systemImage: "tram.circle.fill")
-                            }
-                        } header: {
-                            Text("Trenes y operadores en España")
-                        }
-                    } else {
-                        Section {
-                            Button {
-                                var copia = escapada
-                                copia.tieneTrenes = true
-                                store.actualizarEscapada(copia)
-                            } label: {
-                                Label("Activar sección de trenes (Renfe, Iryo, Ouigo)", systemImage: "tram")
-                                    .font(.caption)
-                            }
-                        }
-                    }
-
-                    // Sección Alojamientos (permite 1 o varios alojamientos)
-                    Section {
-                        let listaAloj = escapada.todosLosAlojamientos
-                        if listaAloj.isEmpty {
-                            Button {
-                                alojamientoAEditar = nil
-                                mostrandoEditarAlojamiento = true
-                            } label: {
-                                Label("Añadir hotel, apartamento o alojamiento", systemImage: "bed.double.fill")
-                            }
-                        } else {
-                            ForEach(listaAloj) { aloj in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(aloj.nombre.isEmpty ? "Alojamiento reservado" : aloj.nombre)
-                                                .font(.headline)
-                                            if !aloj.direccion.isEmpty {
-                                                Text("📍 \(aloj.direccion)")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        Spacer()
-                                        Button("Editar") {
-                                            alojamientoAEditar = aloj
-                                            mostrandoEditarAlojamiento = true
-                                        }
-                                        .font(.caption.bold())
-                                    }
-
-                                    HStack(spacing: 12) {
-                                        Label("Check-in: \(aloj.horaCheckIn)", systemImage: "arrow.down.right.circle")
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                                            .clipShape(Capsule())
-
-                                        Label("Check-out: \(aloj.horaCheckOut)", systemImage: "arrow.up.right.circle")
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                                            .clipShape(Capsule())
-                                    }
-
-                                    HStack(spacing: 8) {
-                                        if !aloj.codigoReserva.isEmpty {
-                                            Button {
-                                                UIPasteboard.general.string = aloj.codigoReserva
-                                                idAlojamientoCopiado = aloj.id
-                                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                                    if idAlojamientoCopiado == aloj.id {
-                                                        idAlojamientoCopiado = nil
-                                                    }
-                                                }
-                                            } label: {
-                                                HStack(spacing: 4) {
-                                                    Text("Ref: \(aloj.codigoReserva)")
-                                                        .font(.caption.monospaced().bold())
-                                                    Image(systemName: idAlojamientoCopiado == aloj.id ? "checkmark" : "doc.on.doc")
-                                                        .font(.caption2)
-                                                }
-                                            }
-                                            .buttonStyle(.bordered)
-                                        }
-
-                                        let queryMapa = (aloj.direccion.isEmpty ? "\(aloj.nombre) \(escapada.destino)" : aloj.direccion)
-                                            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                                        if let mapUrl = URL(string: "http://maps.apple.com/?q=\(queryMapa)"), !queryMapa.isEmpty {
-                                            Link(destination: mapUrl) {
-                                                Label("Cómo llegar", systemImage: "map.fill")
-                                                    .font(.caption.bold())
-                                            }
-                                            .buttonStyle(.borderedProminent)
-                                        }
-
-                                        if let reservaUrl = URL(string: aloj.urlReserva), !aloj.urlReserva.isEmpty {
-                                            Link(destination: reservaUrl) {
-                                                Image(systemName: "safari")
-                                                    .font(.caption.bold())
-                                            }
-                                            .buttonStyle(.bordered)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                            .onDelete { offsets in
-                                var actualizados = escapada.todosLosAlojamientos
-                                actualizados.remove(atOffsets: offsets)
-                                var copia = escapada
-                                copia.alojamiento = actualizados.first ?? AlojamientoInfo()
-                                copia.alojamientos = Array(actualizados.dropFirst())
-                                store.actualizarEscapada(copia)
-                            }
-
-                            Button {
-                                alojamientoAEditar = nil
-                                mostrandoEditarAlojamiento = true
-                            } label: {
-                                Label("Añadir otro alojamiento", systemImage: "plus.circle.fill")
-                            }
-                        }
-                    } header: {
-                        Text(escapada.todosLosAlojamientos.count > 1 ? "Alojamientos (\(escapada.todosLosAlojamientos.count))" : "Alojamiento")
-                    }
-                } else {
-                    Section {
-                        HStack(spacing: 12) {
-                            Image(systemName: "eye.slash.fill")
-                                .font(.title2)
-                                .foregroundStyle(Color.accentColor)
-                            Text("El itinerario, destino, alojamientos y transportes permanecerán ocultos automáticamente hasta el \(escapada.fechaRevelacionSorpresa.formatted(date: .long, time: .omitted)) para mantener la sorpresa.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 6)
-                    } header: {
-                        Text("Sorpresa protegida")
-                    }
+    var body: some View {
+        Section {
+            if cargando {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Consultando previsión del tiempo para \(destino)...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-
-                // Sección Checklist
-                Section {
-                    VStack(spacing: 10) {
-                        TextField("¿Qué hay que llevar o preparar?", text: $nuevoItemTexto)
-                            .textFieldStyle(.plain)
-
-                        HStack(spacing: 12) {
-                            Picker("Asignado a", selection: $nuevoItemAsignado) {
-                                Text("Ambos").tag("Ambos")
-                                Text("Yo").tag("Yo")
-                                Text("Tú").tag("Tú")
-                            }
-                            .pickerStyle(.segmented)
-
-                            Button {
-                                guard !nuevoItemTexto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                                var copia = escapada
-                                copia.checklist.append(
-                                    ItemChecklist(
-                                        texto: nuevoItemTexto.trimmingCharacters(in: .whitespaces),
-                                        completado: false,
-                                        asignadoA: nuevoItemAsignado
-                                    )
-                                )
-                                store.actualizarEscapada(copia)
-                                nuevoItemTexto = ""
-                            } label: {
-                                Label("Añadir", systemImage: "plus.circle.fill")
+                .padding(.vertical, 4)
+            } else if diasPrevision.isEmpty {
+                Text("Previsión no disponible para estas fechas o ubicación todavía.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(diasPrevision) { dia in
+                            VStack(spacing: 6) {
+                                Text(dia.fechaTexto)
                                     .font(.caption.bold())
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(nuevoItemTexto.trimmingCharacters(in: .whitespaces).isEmpty)
-                        }
-                    }
-                    .padding(.vertical, 4)
-
-                    ForEach(escapada.checklist) { item in
-                        HStack {
-                            Image(systemName: item.completado ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(item.completado ? Color.accentColor : .secondary)
-                            Text(item.texto)
-                                .strikethrough(item.completado)
-                                .foregroundStyle(item.completado ? .secondary : .primary)
-                            Spacer()
-                            Text(item.asignadoA)
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                                .clipShape(Capsule())
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            var copia = escapada
-                            if let i = copia.checklist.firstIndex(where: { $0.id == item.id }) {
-                                copia.checklist[i].completado.toggle()
-                                store.actualizarEscapada(copia)
-                            }
-                        }
-                    }
-                    .onDelete { offsets in
-                        var copia = escapada
-                        copia.checklist.remove(atOffsets: offsets)
-                        store.actualizarEscapada(copia)
-                    }
-                } header: {
-                    Text("Checklist compartida")
-                }
-
-                // Sección Ideas (notifica en el iPhone cuando cambia desde otro dispositivo)
-                Section {
-                    HStack {
-                        TextField("Idea, restaurante o enlace...", text: $nuevaIdeaTexto)
-                        Button {
-                            guard !nuevaIdeaTexto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                            var copia = escapada
-                            copia.ideas.append(nuevaIdeaTexto.trimmingCharacters(in: .whitespaces))
-                            store.actualizarEscapada(copia)
-                            nuevaIdeaTexto = ""
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                        }
-                    }
-
-                    ForEach(Array(escapada.ideas.enumerated()), id: \.offset) { _, idea in
-                        if let url = URL(string: idea), idea.hasPrefix("http") {
-                            Link(idea, destination: url)
-                        } else {
-                            Text(idea)
-                        }
-                    }
-                    .onDelete { offsets in
-                        var copia = escapada
-                        copia.ideas.remove(atOffsets: offsets)
-                        store.actualizarEscapada(copia)
-                    }
-                } header: {
-                    Text("Notas rápidas e ideas")
-                }
-
-                // Sección Gastos Compartidos (divisa original + conversión a euros)
-                Section {
-                    let totalGastos = escapada.gastos.reduce(0) { $0 + $1.importe }
-                    let pagadoYo = escapada.gastos.filter { $0.pagadoPor == "Yo" }.reduce(0) { $0 + $1.importe }
-                    let pagadoTu = escapada.gastos.filter { $0.pagadoPor == "Tú" }.reduce(0) { $0 + $1.importe }
-                    let mitad = totalGastos / 2.0
-                    let diferencia = pagadoYo - mitad
-
-                    VStack(spacing: 10) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("TOTAL DEL VIAJE (EN €)")
-                                    .font(.caption2.bold())
-                                    .foregroundStyle(.secondary)
-                                Text(String(format: "%.2f €", totalGastos))
-                                    .font(.title2.bold().monospacedDigit())
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text("Yo: \(String(format: "%.2f €", pagadoYo))")
-                                    .font(.caption.weight(.medium))
-                                Text("Tú: \(String(format: "%.2f €", pagadoTu))")
-                                    .font(.caption.weight(.medium))
-                            }
-                            .foregroundStyle(.secondary)
-                        }
-
-                        if totalGastos > 0 {
-                            HStack {
-                                Image(systemName: abs(diferencia) < 0.01 ? "checkmark.seal.fill" : "arrow.left.arrow.right.circle.fill")
-                                    .foregroundStyle(abs(diferencia) < 0.01 ? .green : Color.accentColor)
-                                if abs(diferencia) < 0.01 {
-                                    Text("¡Estáis en paz al 50%!")
-                                        .font(.caption.bold())
-                                } else if diferencia > 0 {
-                                    Text("Tú le debes \(String(format: "%.2f €", diferencia)) a Yo")
-                                        .font(.caption.bold())
-                                } else {
-                                    Text("Yo le debe \(String(format: "%.2f €", abs(diferencia))) a Tú")
-                                        .font(.caption.bold())
-                                }
-                                Spacer()
-                            }
-                            .padding(8)
-                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        }
-                    }
-                    .padding(.vertical, 4)
-
-                    ForEach(escapada.gastos) { gasto in
-                        HStack(spacing: 10) {
-                            Text(iconoCategoriaGasto(gasto.categoria))
-                                .font(.title3)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(gasto.concepto)
-                                    .font(.subheadline.weight(.medium))
-                                Text("\(gasto.categoria) · Pagó \(gasto.pagadoPor)")
+                                Image(systemName: dia.iconoSF)
+                                    .font(.title2)
+                                    .foregroundStyle(Color.accentColor)
+                                Text(dia.descripcion)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text(gasto.textoOriginal)
-                                    .font(.subheadline.bold().monospacedDigit())
-                                if gasto.monedaCodigo.uppercased() != "EUR" {
-                                    Text("≈ \(gasto.textoEuros)")
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(Color.accentColor)
+                                    .lineLimit(1)
+                                HStack(spacing: 4) {
+                                    Text(String(format: "%.0f°", dia.tempMax))
+                                        .font(.caption.bold().monospacedDigit())
+                                    Text(String(format: "%.0f°", dia.tempMin))
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
                                 }
                             }
+                            .frame(width: 92)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 6)
+                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                     }
-                    .onDelete { offsets in
-                        var copia = escapada
-                        copia.gastos.remove(atOffsets: offsets)
-                        store.actualizarEscapada(copia)
-                    }
-
-                    Button {
-                        mostrandoAgregarGasto = true
-                    } label: {
-                        Label("Añadir gasto compartido", systemImage: "eurosign.circle.fill")
-                    }
-                } header: {
-                    Text("Gastos compartidos")
-                }
-
-                // Sección Recuerdo Ampliada + Valoración (Solo visible cuando la escapada ya ha finalizado)
-                if escapada.yaVivida {
-                    Section {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("Puntuación del viaje (1 a 5)")
-                                .font(.subheadline.bold())
-
-                            FilaEstrellasView(
-                                titulo: "🏙️ Experiencia de la ciudad",
-                                puntuacion: Binding(
-                                    get: { escapada.valoracion.experienciaCiudad },
-                                    set: { val in
-                                        var copia = escapada
-                                        copia.valoracion.experienciaCiudad = val
-                                        store.actualizarEscapada(copia)
-                                    }
-                                )
-                            )
-
-                            FilaEstrellasView(
-                                titulo: "🏛️ Museos y cultura",
-                                puntuacion: Binding(
-                                    get: { escapada.valoracion.museosCultura },
-                                    set: { val in
-                                        var copia = escapada
-                                        copia.valoracion.museosCultura = val
-                                        store.actualizarEscapada(copia)
-                                    }
-                                )
-                            )
-
-                            FilaEstrellasView(
-                                titulo: "🍽️ Gastronomía y cafés",
-                                puntuacion: Binding(
-                                    get: { escapada.valoracion.gastronomia },
-                                    set: { val in
-                                        var copia = escapada
-                                        copia.valoracion.gastronomia = val
-                                        store.actualizarEscapada(copia)
-                                    }
-                                )
-                            )
-
-                            FilaEstrellasView(
-                                titulo: "🛏️ Alojamiento y descanso",
-                                puntuacion: Binding(
-                                    get: { escapada.valoracion.alojamientoDescanso },
-                                    set: { val in
-                                        var copia = escapada
-                                        copia.valoracion.alojamientoDescanso = val
-                                        store.actualizarEscapada(copia)
-                                    }
-                                )
-                            )
-
-                            FilaEstrellasView(
-                                titulo: "💕 Plan y momentos juntos",
-                                puntuacion: Binding(
-                                    get: { escapada.valoracion.momentosJuntos },
-                                    set: { val in
-                                        var copia = escapada
-                                        copia.valoracion.momentosJuntos = val
-                                        store.actualizarEscapada(copia)
-                                    }
-                                )
-                            )
-                        }
-                        .padding(.vertical, 4)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("✨ Nuestro momento favorito")
-                                .font(.caption.bold())
-                                .foregroundStyle(.secondary)
-                            ZStack(alignment: .topLeading) {
-                                if escapada.momentoFavorito.isEmpty {
-                                    Text("Describe con calma ese instante especial del viaje...")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.tertiary)
-                                        .padding(.top, 8)
-                                        .padding(.leading, 4)
-                                }
-                                TextEditor(text: Binding(
-                                    get: { escapada.momentoFavorito },
-                                    set: { nuevoFav in
-                                        var copia = escapada
-                                        copia.momentoFavorito = nuevoFav
-                                        store.actualizarEscapada(copia)
-                                    }
-                                ))
-                                .frame(minHeight: 110)
-                            }
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("📝 Diario y anécdotas de la escapada")
-                                .font(.caption.bold())
-                                .foregroundStyle(.secondary)
-                            TextEditor(text: Binding(
-                                get: { escapada.recuerdo },
-                                set: { nuevoRecuerdo in
-                                    var copia = escapada
-                                    copia.recuerdo = nuevoRecuerdo
-                                    store.actualizarEscapada(copia)
-                                }
-                            ))
-                            .frame(minHeight: 140)
-                        }
-                    } header: {
-                        HStack {
-                            Text("Nuestro recuerdo y valoración")
-                            Spacer()
-                            Text("Aventura finalizada")
-                                .font(.caption2.bold())
-                                .foregroundStyle(Color.accentColor)
-                        }
-                    }
-                }
-
-                Section {
-                    Button("Eliminar escapada", role: .destructive) {
-                        store.eliminarEscapada(escapada)
-                        dismiss()
-                    }
+                    .padding(.vertical, 4)
                 }
             }
-            .navigationTitle(escapada.titulo)
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                if diaSeleccionado > escapada.totalDias {
-                    diaSeleccionado = 1
-                }
-            }
-            .sheet(isPresented: $mostrandoAgregarVuelo) {
-                AgregarVueloSheet(escapada: escapada)
-            }
-            .sheet(isPresented: $mostrandoAgregarTren) {
-                AgregarTrenSheet(escapada: escapada)
-            }
-            .sheet(isPresented: $mostrandoEditarAlojamiento) {
-                EditarAlojamientoSheet(escapada: escapada, alojamientoExistente: alojamientoAEditar)
-            }
-            .sheet(isPresented: $mostrandoAgregarGasto) {
-                AgregarGastoSheet(escapada: escapada)
-            }
+        } header: {
+            Text("Previsión del tiempo en \(destino)")
+        }
+        .task(id: "\(destino)|\(fechaInicio.timeIntervalSince1970)|\(fechaFin.timeIntervalSince1970)") {
+            cargando = true
+            diasPrevision = await ServicioClimaDestino.obtenerPrevision(
+                destino: destino,
+                fechaInicio: fechaInicio,
+                fechaFin: fechaFin
+            )
+            cargando = false
         }
     }
+}
 
-    private func iconoCategoriaGasto(_ categoria: String) -> String {
-        switch categoria {
-        case "Comida": return "🍽️"
-        case "Transporte": return "🚆"
-        case "Alojamiento": return "🛏️"
-        case "Entradas": return "🎟️"
-        default: return "🛍️"
+struct RetoFotograficoFilaView: View {
+    let reto: RetoFotografico
+    let onGuardarFotoBase64: (String?) -> Void
+    let onQuitarFoto: () -> Void
+
+    @State private var itemSeleccionado: PhotosPickerItem? = nil
+
+    private var imagenGuardada: UIImage? {
+        guard let str = reto.fotoBase64,
+              let data = Data(base64Encoded: str) else { return nil }
+        return UIImage(data: data)
+    }
+
+    private var estaCompletado: Bool {
+        reto.completado || imagenGuardada != nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: estaCompletado ? "checkmark.circle.fill" : "camera.circle")
+                    .font(.title3)
+                    .foregroundStyle(estaCompletado ? Color.green : Color.accentColor)
+
+                Text(reto.titulo)
+                    .font(.subheadline.weight(.medium))
+                    .strikethrough(estaCompletado)
+                    .foregroundStyle(estaCompletado ? .secondary : .primary)
+
+                Spacer()
+
+                PhotosPicker(selection: $itemSeleccionado, matching: .images) {
+                    Label(imagenGuardada == nil ? "Añadir foto" : "Cambiar foto", systemImage: "photo.badge.plus")
+                        .font(.caption.bold())
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if let img = imagenGuardada {
+                HStack(alignment: .bottom, spacing: 10) {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 96, height: 96)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    Spacer()
+
+                    Button(role: .destructive) {
+                        itemSeleccionado = nil
+                        onQuitarFoto()
+                    } label: {
+                        Label("Quitar foto", systemImage: "trash")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .onChange(of: itemSeleccionado) { _, nuevoItem in
+            guard let nuevoItem else { return }
+            Task {
+                if let datos = try? await nuevoItem.loadTransferable(type: Data.self),
+                   let uiImg = UIImage(data: datos),
+                   let comprimida = uiImg.jpegData(compressionQuality: 0.65) {
+                    let base64 = comprimida.base64EncodedString()
+                    await MainActor.run {
+                        onGuardarFotoBase64(base64)
+                    }
+                }
+            }
         }
     }
 }
@@ -2597,6 +1742,7 @@ struct NuevaEscapadaSheet: View {
                             vuelos: vuelosIniciales,
                             trenes: [],
                             checklist: [ItemChecklist(texto: "Revisar documentación", completado: false, asignadoA: "Ambos")],
+                            retosFotograficos: [RetoFotografico(titulo: "Un café con vistas")],
                             ideas: []
                         )
                         store.agregarEscapada(nueva)
@@ -2895,12 +2041,27 @@ struct YaVividoView: View {
             } else {
                 ForEach(store.escapadasPasadas) { esc in
                     let totalGastado = esc.gastos.reduce(0) { $0 + $1.importe }
+                    let mediaEstrellas = esc.valoracion.mediaEstrellas
                     NavigationLink(value: esc) {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text("\(esc.icono) \(esc.titulo)")
                                     .font(.headline)
                                 Spacer()
+                                if let media = mediaEstrellas {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "star.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(Color.orange)
+                                        Text(String(format: "%.1f", media))
+                                            .font(.caption.bold().monospacedDigit())
+                                            .foregroundStyle(Color.orange)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.orange.opacity(0.14))
+                                    .clipShape(Capsule())
+                                }
                                 Text(esc.fechaInicio.formatted(date: .abbreviated, time: .omitted))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
