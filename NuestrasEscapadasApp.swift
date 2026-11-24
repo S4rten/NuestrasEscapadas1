@@ -8,8 +8,7 @@ import UserNotifications
 // 1. MODELO DE DATOS (Compatible con Codable de Firestore)
 // ============================================================================
 
-struct AlojamientoInfo: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
+struct AlojamientoInfo: Codable, Hashable {
     var nombre: String = ""
     var direccion: String = ""
     var horaCheckIn: String = "15:00"
@@ -22,164 +21,15 @@ struct AlojamientoInfo: Identifiable, Codable, Hashable {
         !direccion.trimmingCharacters(in: .whitespaces).isEmpty ||
         !codigoReserva.trimmingCharacters(in: .whitespaces).isEmpty
     }
-    
-    init(
-        id: UUID = UUID(),
-        nombre: String = "",
-        direccion: String = "",
-        horaCheckIn: String = "15:00",
-        horaCheckOut: String = "11:00",
-        codigoReserva: String = "",
-        urlReserva: String = ""
-    ) {
-        self.id = id
-        self.nombre = nombre
-        self.direccion = direccion
-        self.horaCheckIn = horaCheckIn
-        self.horaCheckOut = horaCheckOut
-        self.codigoReserva = codigoReserva
-        self.urlReserva = urlReserva
-    }
-    
-    enum CodingKeys: String, CodingKey {
-        case id, nombre, direccion, horaCheckIn, horaCheckOut, codigoReserva, urlReserva
-    }
-    
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        nombre = try c.decodeIfPresent(String.self, forKey: .nombre) ?? ""
-        direccion = try c.decodeIfPresent(String.self, forKey: .direccion) ?? ""
-        horaCheckIn = try c.decodeIfPresent(String.self, forKey: .horaCheckIn) ?? "15:00"
-        horaCheckOut = try c.decodeIfPresent(String.self, forKey: .horaCheckOut) ?? "11:00"
-        codigoReserva = try c.decodeIfPresent(String.self, forKey: .codigoReserva) ?? ""
-        urlReserva = try c.decodeIfPresent(String.self, forKey: .urlReserva) ?? ""
-    }
 }
-
-struct DivisaViaje: Identifiable, Hashable {
-    let id: String
-    let region: String
-    let nombre: String
-    let simbolo: String
-    let tasaAEuros: Double
-}
-
-let DIVISAS_SOPORTADAS: [DivisaViaje] = [
-    // EUROPA
-    DivisaViaje(id: "EUR", region: "Europa", nombre: "Euro (Zona Euro)", simbolo: "€", tasaAEuros: 1.0),
-    DivisaViaje(id: "GBP", region: "Europa", nombre: "Libra esterlina (Reino Unido)", simbolo: "£", tasaAEuros: 1.19),
-    DivisaViaje(id: "CHF", region: "Europa", nombre: "Franco suizo (Suiza)", simbolo: "CHF", tasaAEuros: 1.06),
-    DivisaViaje(id: "CZK", region: "Europa", nombre: "Corona checa (Chequia)", simbolo: "Kč", tasaAEuros: 0.0398),
-    DivisaViaje(id: "PLN", region: "Europa", nombre: "Złoty polaco (Polonia)", simbolo: "zł", tasaAEuros: 0.233),
-    DivisaViaje(id: "HUF", region: "Europa", nombre: "Forinto húngaro (Hungría)", simbolo: "Ft", tasaAEuros: 0.00245),
-    DivisaViaje(id: "RON", region: "Europa", nombre: "Leu rumano (Rumanía)", simbolo: "lei", tasaAEuros: 0.201),
-    DivisaViaje(id: "BGN", region: "Europa", nombre: "Lev búlgaro (Bulgaria)", simbolo: "лв", tasaAEuros: 0.511),
-    DivisaViaje(id: "SEK", region: "Europa", nombre: "Corona sueca (Suecia)", simbolo: "kr", tasaAEuros: 0.087),
-    DivisaViaje(id: "NOK", region: "Europa", nombre: "Corona noruega (Noruega)", simbolo: "kr", tasaAEuros: 0.085),
-    DivisaViaje(id: "DKK", region: "Europa", nombre: "Corona danesa (Dinamarca)", simbolo: "kr", tasaAEuros: 0.134),
-    DivisaViaje(id: "ISK", region: "Europa", nombre: "Corona islandesa (Islandia)", simbolo: "kr", tasaAEuros: 0.0067),
-    DivisaViaje(id: "RSD", region: "Europa", nombre: "Dinar serbio (Serbia)", simbolo: "din", tasaAEuros: 0.0085),
-    DivisaViaje(id: "BAM", region: "Europa", nombre: "Marco convertible (Bosnia)", simbolo: "KM", tasaAEuros: 0.511),
-    DivisaViaje(id: "ALL", region: "Europa", nombre: "Lek albanés (Albania)", simbolo: "L", tasaAEuros: 0.0101),
-    DivisaViaje(id: "MKD", region: "Europa", nombre: "Denar macedonio (Macedonia)", simbolo: "ден", tasaAEuros: 0.0162),
-    DivisaViaje(id: "MDL", region: "Europa", nombre: "Leu moldavo (Moldavia)", simbolo: "L", tasaAEuros: 0.052),
-    DivisaViaje(id: "UAH", region: "Europa", nombre: "Grivna ucraniana (Ucrania)", simbolo: "₴", tasaAEuros: 0.022),
-    DivisaViaje(id: "TRY", region: "Europa", nombre: "Lira turca (Turquía)", simbolo: "₺", tasaAEuros: 0.027),
-    DivisaViaje(id: "GEL", region: "Europa", nombre: "Lari georgiano (Georgia)", simbolo: "₾", tasaAEuros: 0.34),
-    
-    // AMÉRICA
-    DivisaViaje(id: "USD", region: "América", nombre: "Dólar estadounidense (EEUU/Ecuador)", simbolo: "$", tasaAEuros: 0.92),
-    DivisaViaje(id: "CAD", region: "América", nombre: "Dólar canadiense (Canadá)", simbolo: "CA$", tasaAEuros: 0.66),
-    DivisaViaje(id: "MXN", region: "América", nombre: "Peso mexicano (México)", simbolo: "MX$", tasaAEuros: 0.046),
-    DivisaViaje(id: "BRL", region: "América", nombre: "Real brasileño (Brasil)", simbolo: "R$", tasaAEuros: 0.16),
-    DivisaViaje(id: "ARS", region: "América", nombre: "Peso argentino (Argentina)", simbolo: "AR$", tasaAEuros: 0.00092),
-    DivisaViaje(id: "CLP", region: "América", nombre: "Peso chileno (Chile)", simbolo: "CLP$", tasaAEuros: 0.00095),
-    DivisaViaje(id: "COP", region: "América", nombre: "Peso colombiano (Colombia)", simbolo: "COP$", tasaAEuros: 0.00021),
-    DivisaViaje(id: "PEN", region: "América", nombre: "Sol peruano (Perú)", simbolo: "S/", tasaAEuros: 0.245),
-    DivisaViaje(id: "UYU", region: "América", nombre: "Peso uruguayo (Uruguay)", simbolo: "$U", tasaAEuros: 0.022),
-    DivisaViaje(id: "PYG", region: "América", nombre: "Guaraní paraguayo (Paraguay)", simbolo: "₲", tasaAEuros: 0.00012),
-    DivisaViaje(id: "BOB", region: "América", nombre: "Boliviano (Bolivia)", simbolo: "Bs", tasaAEuros: 0.133),
-    DivisaViaje(id: "VES", region: "América", nombre: "Bolívar venezolano (Venezuela)", simbolo: "Bs.D", tasaAEuros: 0.021),
-    DivisaViaje(id: "CRC", region: "América", nombre: "Colón costarricense (Costa Rica)", simbolo: "₡", tasaAEuros: 0.0018),
-    DivisaViaje(id: "GTQ", region: "América", nombre: "Quetzal guatemalteco (Guatemala)", simbolo: "Q", tasaAEuros: 0.119),
-    DivisaViaje(id: "HNL", region: "América", nombre: "Lempira hondureño (Honduras)", simbolo: "L", tasaAEuros: 0.037),
-    DivisaViaje(id: "NIO", region: "América", nombre: "Córdoba nicaragüense (Nicaragua)", simbolo: "C$", tasaAEuros: 0.025),
-    DivisaViaje(id: "PAB", region: "América", nombre: "Balboa panameño (Panamá)", simbolo: "B/.", tasaAEuros: 0.92),
-    DivisaViaje(id: "DOP", region: "América", nombre: "Peso dominicano (Rep. Dominicana)", simbolo: "RD$", tasaAEuros: 0.015),
-    DivisaViaje(id: "CUP", region: "América", nombre: "Peso cubano (Cuba)", simbolo: "CUP", tasaAEuros: 0.038),
-    
-    // ASIA
-    DivisaViaje(id: "JPY", region: "Asia", nombre: "Yen japonés (Japón)", simbolo: "¥", tasaAEuros: 0.0061),
-    DivisaViaje(id: "CNY", region: "Asia", nombre: "Yuan chino (China)", simbolo: "¥", tasaAEuros: 0.128),
-    DivisaViaje(id: "KRW", region: "Asia", nombre: "Won surcoreano (Corea del Sur)", simbolo: "₩", tasaAEuros: 0.00066),
-    DivisaViaje(id: "INR", region: "Asia", nombre: "Rupia india (India)", simbolo: "₹", tasaAEuros: 0.011),
-    DivisaViaje(id: "THB", region: "Asia", nombre: "Baht tailandés (Tailandia)", simbolo: "฿", tasaAEuros: 0.027),
-    DivisaViaje(id: "VND", region: "Asia", nombre: "Dong vietnamita (Vietnam)", simbolo: "₫", tasaAEuros: 0.000036),
-    DivisaViaje(id: "IDR", region: "Asia", nombre: "Rupia indonesia (Indonesia/Bali)", simbolo: "Rp", tasaAEuros: 0.000058),
-    DivisaViaje(id: "MYR", region: "Asia", nombre: "Ringgit malayo (Malasia)", simbolo: "RM", tasaAEuros: 0.21),
-    DivisaViaje(id: "SGD", region: "Asia", nombre: "Dólar singapurense (Singapur)", simbolo: "S$", tasaAEuros: 0.69),
-    DivisaViaje(id: "PHP", region: "Asia", nombre: "Peso filipino (Filipinas)", simbolo: "₱", tasaAEuros: 0.016),
-    DivisaViaje(id: "TWD", region: "Asia", nombre: "Nuevo dólar taiwanés (Taiwán)", simbolo: "NT$", tasaAEuros: 0.0285),
-    DivisaViaje(id: "HKD", region: "Asia", nombre: "Dólar de Hong Kong (Hong Kong)", simbolo: "HK$", tasaAEuros: 0.118),
-    DivisaViaje(id: "AED", region: "Asia", nombre: "Dírham EAU (Dubái/Emiratos)", simbolo: "AED", tasaAEuros: 0.25),
-    DivisaViaje(id: "SAR", region: "Asia", nombre: "Riyal saudí (Arabia Saudí)", simbolo: "SAR", tasaAEuros: 0.245),
-    DivisaViaje(id: "QAR", region: "Asia", nombre: "Riyal catarí (Catar)", simbolo: "QAR", tasaAEuros: 0.252),
-    DivisaViaje(id: "ILS", region: "Asia", nombre: "Nuevo séquel (Israel)", simbolo: "₪", tasaAEuros: 0.25),
-    DivisaViaje(id: "JOD", region: "Asia", nombre: "Dinar jordano (Jordania)", simbolo: "JOD", tasaAEuros: 1.30),
-    DivisaViaje(id: "KZT", region: "Asia", nombre: "Tenge kazajo (Kazajistán)", simbolo: "₸", tasaAEuros: 0.0019),
-    DivisaViaje(id: "UZS", region: "Asia", nombre: "Som uzbeko (Uzbekistán)", simbolo: "so'm", tasaAEuros: 0.000072),
-    DivisaViaje(id: "NPR", region: "Asia", nombre: "Rupia nepalí (Nepal)", simbolo: "रू", tasaAEuros: 0.0068),
-    DivisaViaje(id: "LKR", region: "Asia", nombre: "Rupia de Sri Lanka (Sri Lanka)", simbolo: "Rs", tasaAEuros: 0.0031),
-    DivisaViaje(id: "KHR", region: "Asia", nombre: "Riel camboyano (Camboya)", simbolo: "៛", tasaAEuros: 0.00023),
-    DivisaViaje(id: "LAK", region: "Asia", nombre: "Kip laosiano (Laos)", simbolo: "₭", tasaAEuros: 0.000042)
-]
 
 struct GastoViaje: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var concepto: String
-    var importe: Double              // Importe convertido a Euros (€)
-    var importeOriginal: Double      // Importe en la divisa en que se pagó
-    var codigoDivisa: String         // Ej: "EUR", "CZK", "GBP", "JPY", "USD"
-    var pagadoPor: String            // "Yo" o "Tú"
-    var categoria: String            // "Comida", "Transporte", "Alojamiento", "Entradas", "Otros"
+    var importe: Double
+    var pagadoPor: String         // "Yo" o "Tú"
+    var categoria: String         // "Comida", "Transporte", "Alojamiento", "Entradas", "Otros"
     var fecha: Date = Date()
-    
-    init(
-        id: UUID = UUID(),
-        concepto: String,
-        importe: Double,
-        importeOriginal: Double? = nil,
-        codigoDivisa: String = "EUR",
-        pagadoPor: String,
-        categoria: String,
-        fecha: Date = Date()
-    ) {
-        self.id = id
-        self.concepto = concepto
-        self.importe = importe
-        self.importeOriginal = importeOriginal ?? importe
-        self.codigoDivisa = codigoDivisa
-        self.pagadoPor = pagadoPor
-        self.categoria = categoria
-        self.fecha = fecha
-    }
-    
-    enum CodingKeys: String, CodingKey {
-        case id, concepto, importe, importeOriginal, codigoDivisa, pagadoPor, categoria, fecha
-    }
-    
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        concepto = try c.decode(String.self, forKey: .concepto)
-        importe = try c.decode(Double.self, forKey: .importe)
-        importeOriginal = try c.decodeIfPresent(Double.self, forKey: .importeOriginal) ?? importe
-        codigoDivisa = try c.decodeIfPresent(String.self, forKey: .codigoDivisa) ?? "EUR"
-        pagadoPor = try c.decode(String.self, forKey: .pagadoPor)
-        categoria = try c.decode(String.self, forKey: .categoria)
-        fecha = try c.decodeIfPresent(Date.self, forKey: .fecha) ?? Date()
-    }
 }
 
 struct Vuelo: Identifiable, Codable, Hashable {
@@ -193,18 +43,6 @@ struct Vuelo: Identifiable, Codable, Hashable {
     var numeroVuelo: String
     var localizador: String
     var terminalPuerta: String
-    var urlReserva: String
-}
-
-struct TrenViaje: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
-    var trayecto: String          // "Ida", "Vuelta"
-    var operadora: String         // "Renfe", "Iryo", "Ouigo"
-    var estacionOrigen: String
-    var estacionDestino: String
-    var fechaHoraSalida: Date
-    var fechaHoraLlegada: Date
-    var localizador: String
     var urlReserva: String
 }
 
@@ -230,6 +68,20 @@ struct ValoracionViaje: Codable, Hashable {
     var momentosJuntos: Int = 0
 }
 
+struct RetoFotoViaje: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var titulo: String
+    var completado: Bool = false
+}
+
+struct DestinoDeseado: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var nombre: String
+    var nota: String = ""
+    var enlace: String = ""
+    var icono: String = "✨"
+}
+
 struct Escapada: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var titulo: String
@@ -238,7 +90,6 @@ struct Escapada: Identifiable, Codable, Hashable {
     var fechaFin: Date
     var icono: String
     var tieneVuelos: Bool = true
-    var tieneTrenes: Bool = false
     var esSorpresa: Bool
     var pistaSorpresa: String
     var diasRevelarSorpresaAntes: Int = 0
@@ -246,14 +97,12 @@ struct Escapada: Identifiable, Codable, Hashable {
     var momentoFavorito: String = ""
     var valoracion: ValoracionViaje = ValoracionViaje()
     var alojamiento: AlojamientoInfo = AlojamientoInfo()
-    var alojamientos: [AlojamientoInfo] = []
     var gastos: [GastoViaje] = []
     var vuelos: [Vuelo]
-    var trenes: [TrenViaje] = []
     var checklist: [ItemChecklist]
     var itinerario: [ActividadDia] = []
     var ideas: [String]
-    var ultimoDispositivoEditor: String = ""
+    var retosFotos: [RetoFotoViaje] = []
     
     var yaVivida: Bool {
         let finDelDia = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: fechaFin)) ?? fechaFin
@@ -298,7 +147,6 @@ struct Escapada: Identifiable, Codable, Hashable {
         fechaFin: Date,
         icono: String,
         tieneVuelos: Bool = true,
-        tieneTrenes: Bool = false,
         esSorpresa: Bool,
         pistaSorpresa: String,
         diasRevelarSorpresaAntes: Int = 0,
@@ -306,14 +154,12 @@ struct Escapada: Identifiable, Codable, Hashable {
         momentoFavorito: String = "",
         valoracion: ValoracionViaje = ValoracionViaje(),
         alojamiento: AlojamientoInfo = AlojamientoInfo(),
-        alojamientos: [AlojamientoInfo] = [],
         gastos: [GastoViaje] = [],
         vuelos: [Vuelo],
-        trenes: [TrenViaje] = [],
         checklist: [ItemChecklist],
         itinerario: [ActividadDia] = [],
         ideas: [String],
-        ultimoDispositivoEditor: String = ""
+        retosFotos: [RetoFotoViaje] = []
     ) {
         self.id = id
         self.titulo = titulo
@@ -322,7 +168,6 @@ struct Escapada: Identifiable, Codable, Hashable {
         self.fechaFin = fechaFin
         self.icono = icono
         self.tieneVuelos = tieneVuelos
-        self.tieneTrenes = tieneTrenes
         self.esSorpresa = esSorpresa
         self.pistaSorpresa = pistaSorpresa
         self.diasRevelarSorpresaAntes = max(0, diasRevelarSorpresaAntes)
@@ -330,25 +175,17 @@ struct Escapada: Identifiable, Codable, Hashable {
         self.momentoFavorito = momentoFavorito
         self.valoracion = valoracion
         self.alojamiento = alojamiento
-        if !alojamientos.isEmpty {
-            self.alojamientos = alojamientos
-        } else if alojamiento.tieneDatos {
-            self.alojamientos = [alojamiento]
-        } else {
-            self.alojamientos = []
-        }
         self.gastos = gastos
         self.vuelos = vuelos
-        self.trenes = trenes
         self.checklist = checklist
         self.itinerario = itinerario
         self.ideas = ideas
-        self.ultimoDispositivoEditor = ultimoDispositivoEditor
+        self.retosFotos = retosFotos
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, tieneTrenes, esSorpresa, pistaSorpresa
-        case diasRevelarSorpresaAntes, recuerdo, momentoFavorito, valoracion, alojamiento, alojamientos, gastos, vuelos, trenes, checklist, itinerario, ideas, ultimoDispositivoEditor
+        case id, titulo, destino, fechaInicio, fechaFin, icono, tieneVuelos, esSorpresa, pistaSorpresa
+        case diasRevelarSorpresaAntes, recuerdo, momentoFavorito, valoracion, alojamiento, gastos, vuelos, checklist, itinerario, ideas, retosFotos
     }
     
     init(from decoder: Decoder) throws {
@@ -360,35 +197,24 @@ struct Escapada: Identifiable, Codable, Hashable {
         fechaFin = try c.decode(Date.self, forKey: .fechaFin)
         icono = try c.decodeIfPresent(String.self, forKey: .icono) ?? "✈️"
         vuelos = try c.decodeIfPresent([Vuelo].self, forKey: .vuelos) ?? []
-        trenes = try c.decodeIfPresent([TrenViaje].self, forKey: .trenes) ?? []
         tieneVuelos = try c.decodeIfPresent(Bool.self, forKey: .tieneVuelos) ?? !vuelos.isEmpty
-        tieneTrenes = try c.decodeIfPresent(Bool.self, forKey: .tieneTrenes) ?? !trenes.isEmpty
         esSorpresa = try c.decodeIfPresent(Bool.self, forKey: .esSorpresa) ?? false
         pistaSorpresa = try c.decodeIfPresent(String.self, forKey: .pistaSorpresa) ?? ""
         diasRevelarSorpresaAntes = try c.decodeIfPresent(Int.self, forKey: .diasRevelarSorpresaAntes) ?? 0
         recuerdo = try c.decodeIfPresent(String.self, forKey: .recuerdo) ?? ""
         momentoFavorito = try c.decodeIfPresent(String.self, forKey: .momentoFavorito) ?? ""
         valoracion = try c.decodeIfPresent(ValoracionViaje.self, forKey: .valoracion) ?? ValoracionViaje()
-        let alojLegacy = try c.decodeIfPresent(AlojamientoInfo.self, forKey: .alojamiento) ?? AlojamientoInfo()
-        alojamiento = alojLegacy
-        let listaAloj = try c.decodeIfPresent([AlojamientoInfo].self, forKey: .alojamientos) ?? []
-        if !listaAloj.isEmpty {
-            alojamientos = listaAloj
-        } else if alojLegacy.tieneDatos {
-            alojamientos = [alojLegacy]
-        } else {
-            alojamientos = []
-        }
+        alojamiento = try c.decodeIfPresent(AlojamientoInfo.self, forKey: .alojamiento) ?? AlojamientoInfo()
         gastos = try c.decodeIfPresent([GastoViaje].self, forKey: .gastos) ?? []
         checklist = try c.decodeIfPresent([ItemChecklist].self, forKey: .checklist) ?? []
         itinerario = try c.decodeIfPresent([ActividadDia].self, forKey: .itinerario) ?? []
         ideas = try c.decodeIfPresent([String].self, forKey: .ideas) ?? []
-        ultimoDispositivoEditor = try c.decodeIfPresent(String.self, forKey: .ultimoDispositivoEditor) ?? ""
+        retosFotos = try c.decodeIfPresent([RetoFotoViaje].self, forKey: .retosFotos) ?? []
     }
 }
 
 // ============================================================================
-// 2. BUSCADOR DE VUELOS ONLINE (Consulta web de estado de vuelos y aerolíneas)
+// 2. BUSCADOR DE VUELOS ONLINE + PREVISIÓN DEL TIEMPO EN DESTINO
 // ============================================================================
 
 struct ResultadoBusquedaVuelo {
@@ -602,13 +428,83 @@ enum BuscadorVuelosWeb {
     }
 }
 
+struct PrevisionTiempoDestino {
+    var temperaturaActual: Double
+    var tempMax: Double
+    var tempMin: Double
+    var descripcion: String
+    var iconoSF: String
+}
+
+enum ServicioTiempoDestino {
+    static func consultar(destino: String, coordenada: CLLocationCoordinate2D?) async -> PrevisionTiempoDestino? {
+        var coord = coordenada
+        if coord == nil {
+            let limpio = destino.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !limpio.isEmpty else { return nil }
+            if let placemarks = try? await CLGeocoder().geocodeAddressString(limpio),
+               let loc = placemarks.first?.location {
+                coord = loc.coordinate
+            }
+        }
+        guard let punto = coord else { return nil }
+        guard let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(punto.latitude)&longitude=\(punto.longitude)&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto") else {
+            return nil
+        }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5.0
+        
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let current = json["current"] as? [String: Any],
+                  let tempActual = current["temperature_2m"] as? Double else {
+                return nil
+            }
+            let code = (current["weather_code"] as? Int) ?? 0
+            let daily = json["daily"] as? [String: Any]
+            let maxArr = daily?["temperature_2m_max"] as? [Double]
+            let minArr = daily?["temperature_2m_min"] as? [Double]
+            let infoWmo = describirCodigoWMO(code)
+            
+            return PrevisionTiempoDestino(
+                temperaturaActual: tempActual,
+                tempMax: maxArr?.first ?? tempActual,
+                tempMin: minArr?.first ?? tempActual,
+                descripcion: infoWmo.texto,
+                iconoSF: infoWmo.icono
+            )
+        } catch {
+            return nil
+        }
+    }
+    
+    private static func describirCodigoWMO(_ code: Int) -> (texto: String, icono: String) {
+        switch code {
+        case 0: return ("Despejado", "sun.max.fill")
+        case 1, 2: return ("Poco nuboso", "cloud.sun.fill")
+        case 3: return ("Nublado", "cloud.fill")
+        case 45, 48: return ("Niebla", "cloud.fog.fill")
+        case 51, 53, 55, 56, 57: return ("Llovizna", "cloud.drizzle.fill")
+        case 61, 63, 65, 66, 67: return ("Lluvia", "cloud.rain.fill")
+        case 71, 73, 75, 77: return ("Nieve", "snowflake")
+        case 80, 81, 82: return ("Chubascos", "cloud.heavyrain.fill")
+        case 95, 96, 99: return ("Tormenta", "cloud.bolt.rain.fill")
+        default: return ("Variable", "cloud.sun.fill")
+        }
+    }
+}
+
 // ============================================================================
-// 3. GESTOR DE ESTADO Y SINCRONIZACIÓN EN TIEMPO REAL CON FIRESTORE
+// 3. GESTOR DE ESTADO, NOTIFICACIONES INTELIGENTES, WISHLIST Y FIRESTORE
 // ============================================================================
 
 @MainActor
 class EscapadasStore: ObservableObject {
     @Published var escapadas: [Escapada] = []
+    @Published var wishlist: [DestinoDeseado] = []
     @Published var codigoPareja: String {
         didSet {
             UserDefaults.standard.set(codigoPareja, forKey: "codigo_pareja_ios")
@@ -619,28 +515,22 @@ class EscapadasStore: ObservableObject {
     
     private var db: Firestore?
     private var listener: ListenerRegistration?
+    private var wishlistListener: ListenerRegistration?
     private let localBackupKey = "nuestras_escapadas_backup_v2"
-    private let deviceIdKey = "nuestras_escapadas_device_id_v1"
+    private let localWishlistKey = "nuestras_escapadas_wishlist_v1"
     private var primeraCargaSala = true
-    private let deviceId: String
     
     init() {
-        if let guardadoDevice = UserDefaults.standard.string(forKey: deviceIdKey), !guardadoDevice.isEmpty {
-            self.deviceId = guardadoDevice
-        } else {
-            let nuevo = UUID().uuidString
-            UserDefaults.standard.set(nuevo, forKey: deviceIdKey)
-            self.deviceId = nuevo
-        }
         let guardado = UserDefaults.standard.string(forKey: "codigo_pareja_ios") ?? "VIAJE-2026"
         self.codigoPareja = guardado
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         cargarCopiaLocal()
+        solicitarPermisosYProgramarRecordatorios()
         configurarFirebase()
     }
     
     deinit {
         listener?.remove()
+        wishlistListener?.remove()
     }
     
     private func configurarFirebase() {
@@ -672,6 +562,7 @@ class EscapadasStore: ObservableObject {
         guard let db = db else { return }
         
         listener?.remove()
+        wishlistListener?.remove()
         primeraCargaSala = true
         estadoNube = "Conectando..."
         
@@ -699,33 +590,21 @@ class EscapadasStore: ObservableObject {
                     return
                 }
                 
-                let eraPrimera = self.primeraCargaSala
                 self.primeraCargaSala = false
-                
-                if !eraPrimera {
-                    for remota in remotas {
-                        if !remota.ultimoDispositivoEditor.isEmpty && remota.ultimoDispositivoEditor != self.deviceId {
-                            if let previa = self.escapadas.first(where: { $0.id == remota.id }), previa.ideas != remota.ideas {
-                                self.enviarNotificacionCambioIdeas(escapada: remota)
-                            }
-                        }
-                    }
-                }
-                
                 self.escapadas = remotas
+                self.guardarCopiaLocal()
+                self.programarRecordatoriosInteligentes()
+            }
+        }
+        
+        let wishColeccion = db.collection("parejas").document(limpio).collection("wishlist")
+        wishlistListener = wishColeccion.addSnapshotListener { [weak self] snapshot, _ in
+            Task { @MainActor [weak self] in
+                guard let self = self, let documents = snapshot?.documents else { return }
+                self.wishlist = documents.compactMap { try? $0.data(as: DestinoDeseado.self) }
                 self.guardarCopiaLocal()
             }
         }
-    }
-    
-    private func enviarNotificacionCambioIdeas(escapada: Escapada) {
-        let content = UNMutableNotificationContent()
-        content.title = "💡 Nuevo cambio en \(escapada.titulo)"
-        content.body = "Tu pareja ha actualizado las notas rápidas e ideas de \(escapada.destino)."
-        content.sound = .default
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-        UNUserNotificationCenter.current().add(req)
     }
     
     var proximasEscapadas: [Escapada] {
@@ -744,6 +623,7 @@ class EscapadasStore: ObservableObject {
         escapadas.append(nueva)
         guardarCopiaLocal()
         guardarEnFirestore(nueva)
+        programarRecordatoriosInteligentes()
     }
     
     func actualizarEscapada(_ editada: Escapada) {
@@ -754,24 +634,108 @@ class EscapadasStore: ObservableObject {
         }
         guardarCopiaLocal()
         guardarEnFirestore(editada)
+        programarRecordatoriosInteligentes()
     }
     
     func eliminarEscapada(_ escapada: Escapada) {
         escapadas.removeAll { $0.id == escapada.id }
         guardarCopiaLocal()
         eliminarDeFirestore(escapada)
+        programarRecordatoriosInteligentes()
+    }
+    
+    func agregarDestinoDeseado(_ item: DestinoDeseado) {
+        wishlist.append(item)
+        guardarCopiaLocal()
+        guardarWishlistEnFirestore(item)
+    }
+    
+    func eliminarDestinoDeseado(_ item: DestinoDeseado) {
+        wishlist.removeAll { $0.id == item.id }
+        guardarCopiaLocal()
+        eliminarWishlistDeFirestore(item)
+    }
+    
+    private func guardarWishlistEnFirestore(_ item: DestinoDeseado) {
+        guard let db = db else { return }
+        try? db.collection("parejas")
+            .document(codigoPareja)
+            .collection("wishlist")
+            .document(item.id.uuidString)
+            .setData(from: item, merge: false)
+    }
+    
+    private func eliminarWishlistDeFirestore(_ item: DestinoDeseado) {
+        guard let db = db else { return }
+        db.collection("parejas")
+            .document(codigoPareja)
+            .collection("wishlist")
+            .document(item.id.uuidString)
+            .delete(completion: nil)
+    }
+    
+    func solicitarPermisosYProgramarRecordatorios() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
+            guard granted else { return }
+            Task { @MainActor [weak self] in
+                self?.programarRecordatoriosInteligentes()
+            }
+        }
+    }
+    
+    func programarRecordatoriosInteligentes() {
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { requests in
+            let idsAQuitar = requests
+                .map(\.identifier)
+                .filter { $0.hasPrefix("escapada_24h_") || $0.hasPrefix("sorpresa_aviso_") }
+            center.removePendingNotificationRequests(withIdentifiers: idsAQuitar)
+            
+            Task { @MainActor in
+                let ahora = Date()
+                for esc in self.escapadas where !esc.yaVivida {
+                    // Recordatorio 24h antes de la escapada
+                    let fecha24hAntes = esc.fechaInicio.addingTimeInterval(-86400)
+                    if fecha24hAntes > ahora {
+                        let contenido = UNMutableNotificationContent()
+                        contenido.title = "✈️ ¡Mañana empieza \(esc.titulo)!"
+                        contenido.body = esc.esSorpresa && !esc.sorpresaDesbloqueada
+                            ? "Revisad la maleta y preparad la ilusión para vuestra escapada sorpresa."
+                            : "Último repaso a la maleta y reservas para \(esc.destino)."
+                        contenido.sound = .default
+                        let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fecha24hAntes)
+                        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+                        let req = UNNotificationRequest(identifier: "escapada_24h_\(esc.id.uuidString)", content: contenido, trigger: trigger)
+                        center.add(req)
+                    }
+                    
+                    // Aviso de desbloqueo de plan sorpresa
+                    if esc.esSorpresa {
+                        let fechaRevelacion = esc.fechaRevelacionSorpresa
+                        if fechaRevelacion > ahora {
+                            let contenidoSorpresa = UNMutableNotificationContent()
+                            contenidoSorpresa.title = "🎁 ¡Hoy se desvela \(esc.titulo)!"
+                            contenidoSorpresa.body = "Ya podéis ver el destino y todos los detalles de vuestra escapada sorpresa."
+                            contenidoSorpresa.sound = .default
+                            let compsSorpresa = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fechaRevelacion)
+                            let triggerSorpresa = UNCalendarNotificationTrigger(dateMatching: compsSorpresa, repeats: false)
+                            let reqSorpresa = UNNotificationRequest(identifier: "sorpresa_aviso_\(esc.id.uuidString)", content: contenidoSorpresa, trigger: triggerSorpresa)
+                            center.add(reqSorpresa)
+                        }
+                    }
+                }
+            }
+        }
     }
     
     private func guardarEnFirestore(_ escapada: Escapada) {
         guard let db = db else { return }
-        var copiaConAutor = escapada
-        copiaConAutor.ultimoDispositivoEditor = deviceId
         do {
             try db.collection("parejas")
                 .document(codigoPareja)
                 .collection("escapadas")
-                .document(copiaConAutor.id.uuidString)
-                .setData(from: copiaConAutor, merge: false)
+                .document(escapada.id.uuidString)
+                .setData(from: escapada, merge: false)
             estadoNube = "En vivo"
         } catch {
             estadoNube = "Error al guardar"
@@ -797,12 +761,17 @@ class EscapadasStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(escapadas)
             UserDefaults.standard.set(data, forKey: localBackupKey)
+            let wishData = try JSONEncoder().encode(wishlist)
+            UserDefaults.standard.set(wishData, forKey: localWishlistKey)
         } catch {
             // Ignorar error de respaldo local
         }
     }
     
     private func cargarCopiaLocal() {
+        if let wishData = UserDefaults.standard.data(forKey: localWishlistKey) {
+            wishlist = (try? JSONDecoder().decode([DestinoDeseado].self, from: wishData)) ?? []
+        }
         guard let data = UserDefaults.standard.data(forKey: localBackupKey) else { return }
         do {
             escapadas = try JSONDecoder().decode([Escapada].self, from: data)
@@ -827,7 +796,6 @@ class EscapadasStore: ObservableObject {
                 fechaFin: fin1,
                 icono: "✈️",
                 tieneVuelos: true,
-                tieneTrenes: false,
                 esSorpresa: false,
                 pistaSorpresa: "",
                 diasRevelarSorpresaAntes: 0,
@@ -853,7 +821,11 @@ class EscapadasStore: ObservableObject {
                 itinerario: [
                     ActividadDia(diaIndex: 1, nombreSitio: "Puente de Carlos", urlSitio: "https://www.prague.eu")
                 ],
-                ideas: ["Paseo por el casco antiguo"]
+                ideas: ["Paseo por el casco antiguo"],
+                retosFotos: [
+                    RetoFotoViaje(titulo: "Foto juntos con vistas de la ciudad", completado: false),
+                    RetoFotoViaje(titulo: "Algo dulce o café local", completado: false)
+                ]
             ),
             Escapada(
                 titulo: "Fin de semana secreto",
@@ -862,7 +834,6 @@ class EscapadasStore: ObservableObject {
                 fechaFin: fin2,
                 icono: "🎁",
                 tieneVuelos: false,
-                tieneTrenes: false,
                 esSorpresa: true,
                 pistaSorpresa: "Abrigo cómodo y ganas de desconectar",
                 diasRevelarSorpresaAntes: 3,
@@ -871,7 +842,10 @@ class EscapadasStore: ObservableObject {
                 checklist: [
                     ItemChecklist(texto: "Calzado cómodo", completado: false, asignadoA: "Ambos")
                 ],
-                ideas: []
+                ideas: [],
+                retosFotos: [
+                    RetoFotoViaje(titulo: "Atardecer de la escapada", completado: false)
+                ]
             )
         ]
         
@@ -949,6 +923,14 @@ struct ContentView: View {
             }
             .tabItem {
                 Label("Mapa", systemImage: "map.fill")
+            }
+            
+            NavigationStack {
+                WishlistDestinosView()
+                    .navigationTitle("Wishlist")
+            }
+            .tabItem {
+                Label("Wishlist", systemImage: "sparkles")
             }
             
             NavigationStack {
@@ -1190,12 +1172,13 @@ struct DetalleEscapadaView: View {
     @State private var nuevoItemTexto = ""
     @State private var nuevoItemAsignado = "Ambos"
     @State private var nuevaIdeaTexto = ""
+    @State private var nuevoRetoFotoTexto = ""
+    @State private var previsionTiempo: PrevisionTiempoDestino? = nil
+    @State private var cargandoTiempo = false
     @State private var mostrandoAgregarVuelo = false
-    @State private var mostrandoAgregarTren = false
-    @State private var alojamientoEnEdicion: AlojamientoInfo? = nil
-    @State private var mostrandoNuevoAlojamiento = false
+    @State private var mostrandoEditarAlojamiento = false
     @State private var mostrandoAgregarGasto = false
-    @State private var codigoAlojamientoCopiado: UUID? = nil
+    @State private var codigoAlojamientoCopiado = false
     
     private var escapadaActual: Escapada? {
         store.escapadas.first(where: { $0.id == escapadaId })
@@ -1267,6 +1250,43 @@ struct DetalleEscapadaView: View {
                             value: diasAntesBinding,
                             in: 0...30
                         )
+                    }
+                }
+                
+                // Previsión del tiempo en destino (oculta si la sorpresa está bloqueada)
+                if !sorpresaBloqueada {
+                    Section {
+                        if cargandoTiempo {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Consultando tiempo en \(escapada.destino)...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else if let clima = previsionTiempo {
+                            HStack(spacing: 12) {
+                                Image(systemName: clima.iconoSF)
+                                    .font(.title2)
+                                    .foregroundStyle(Color.accentColor)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(String(format: "%.0f°C · %@", clima.temperaturaActual, clima.descripcion))
+                                        .font(.subheadline.bold())
+                                    Text(String(format: "Máx %.0f° / Mín %.0f°", clima.tempMax, clima.tempMin))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                        } else {
+                            Button {
+                                Task { await cargarPrevisionTiempo(destino: escapada.destino) }
+                            } label: {
+                                Label("Ver previsión del tiempo", systemImage: "cloud.sun")
+                                    .font(.caption.bold())
+                            }
+                        }
+                    } header: {
+                        Text("Previsión del tiempo en destino")
                     }
                 }
                 
@@ -1412,158 +1432,91 @@ struct DetalleEscapadaView: View {
                         }
                     }
                     
-                    // Sección Trenes (independiente de vuelos, con páginas de trenes españolas)
-                    if escapada.tieneTrenes || !escapada.trenes.isEmpty {
-                        Section {
-                            if escapada.trenes.isEmpty {
-                                Text("Sin billetes de tren añadidos")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ForEach(escapada.trenes) { tren in
-                                    TrenCardView(tren: tren)
-                                }
-                                .onDelete { offsets in
-                                    var copia = escapada
-                                    copia.trenes.remove(atOffsets: offsets)
-                                    store.actualizarEscapada(copia)
-                                }
-                            }
-                            
-                            Button {
-                                mostrandoAgregarTren = true
-                            } label: {
-                                Label("Añadir billete de tren", systemImage: "tram.circle.fill")
-                            }
-                            
-                            HStack(spacing: 8) {
-                                Text("Webs trenes:")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Link("Renfe", destination: URL(string: "https://www.renfe.com/es/es")!)
-                                    .font(.caption2.bold())
-                                Link("Iryo", destination: URL(string: "https://iryo.eu/es")!)
-                                    .font(.caption2.bold())
-                                Link("Ouigo", destination: URL(string: "https://www.ouigo.com/es")!)
-                                    .font(.caption2.bold())
-                            }
-                        } header: {
-                            Text("Trenes y billetes")
-                        }
-                    } else {
-                        Section {
-                            Button {
-                                var copia = escapada
-                                copia.tieneTrenes = true
-                                store.actualizarEscapada(copia)
-                                mostrandoAgregarTren = true
-                            } label: {
-                                Label("Este viaje no tiene trenes · Activar sección de trenes", systemImage: "tram.fill")
-                                    .font(.caption)
-                            }
-                        }
-                    }
-                    
-                    // Sección Alojamientos (permite añadir más de uno por viaje)
+                    // Sección Alojamiento
                     Section {
-                        if escapada.alojamientos.isEmpty {
+                        if escapada.alojamiento.tieneDatos {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(alignment: .top) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(escapada.alojamiento.nombre.isEmpty ? "Alojamiento reservado" : escapada.alojamiento.nombre)
+                                            .font(.headline)
+                                        if !escapada.alojamiento.direccion.isEmpty {
+                                            Text("📍 \(escapada.alojamiento.direccion)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    Button("Editar") {
+                                        mostrandoEditarAlojamiento = true
+                                    }
+                                    .font(.caption.bold())
+                                }
+                                
+                                HStack(spacing: 12) {
+                                    Label("Check-in: \(escapada.alojamiento.horaCheckIn)", systemImage: "arrow.down.right.circle")
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                        .clipShape(Capsule())
+                                    
+                                    Label("Check-out: \(escapada.alojamiento.horaCheckOut)", systemImage: "arrow.up.right.circle")
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                        .clipShape(Capsule())
+                                }
+                                
+                                HStack(spacing: 8) {
+                                    if !escapada.alojamiento.codigoReserva.isEmpty {
+                                        Button {
+                                            UIPasteboard.general.string = escapada.alojamiento.codigoReserva
+                                            codigoAlojamientoCopiado = true
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                                codigoAlojamientoCopiado = false
+                                            }
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Text("Ref: \(escapada.alojamiento.codigoReserva)")
+                                                    .font(.caption.monospaced().bold())
+                                                Image(systemName: codigoAlojamientoCopiado ? "checkmark" : "doc.on.doc")
+                                                    .font(.caption2)
+                                            }
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                    
+                                    let queryMapa = (escapada.alojamiento.direccion.isEmpty ? "\(escapada.alojamiento.nombre) \(escapada.destino)" : escapada.alojamiento.direccion)
+                                        .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                                    if let mapUrl = URL(string: "http://maps.apple.com/?q=\(queryMapa)"), !queryMapa.isEmpty {
+                                        Link(destination: mapUrl) {
+                                            Label("Cómo llegar", systemImage: "map.fill")
+                                                .font(.caption.bold())
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                    }
+                                    
+                                    if let reservaUrl = URL(string: escapada.alojamiento.urlReserva), !escapada.alojamiento.urlReserva.isEmpty {
+                                        Link(destination: reservaUrl) {
+                                            Image(systemName: "safari")
+                                                .font(.caption.bold())
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        } else {
                             Button {
-                                mostrandoNuevoAlojamiento = true
+                                mostrandoEditarAlojamiento = true
                             } label: {
                                 Label("Añadir hotel, apartamento o alojamiento", systemImage: "bed.double.fill")
                             }
-                        } else {
-                            ForEach(escapada.alojamientos) { aloj in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(aloj.nombre.isEmpty ? "Alojamiento reservado" : aloj.nombre)
-                                                .font(.headline)
-                                            if !aloj.direccion.isEmpty {
-                                                Text("📍 \(aloj.direccion)")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        Spacer()
-                                        Button("Editar") {
-                                            alojamientoEnEdicion = aloj
-                                        }
-                                        .font(.caption.bold())
-                                    }
-                                    
-                                    HStack(spacing: 12) {
-                                        Label("Check-in: \(aloj.horaCheckIn)", systemImage: "arrow.down.right.circle")
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                                            .clipShape(Capsule())
-                                        
-                                        Label("Check-out: \(aloj.horaCheckOut)", systemImage: "arrow.up.right.circle")
-                                            .font(.caption2.bold())
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                                            .clipShape(Capsule())
-                                    }
-                                    
-                                    HStack(spacing: 8) {
-                                        if !aloj.codigoReserva.isEmpty {
-                                            Button {
-                                                UIPasteboard.general.string = aloj.codigoReserva
-                                                codigoAlojamientoCopiado = aloj.id
-                                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                                    codigoAlojamientoCopiado = nil
-                                                }
-                                            } label: {
-                                                HStack(spacing: 4) {
-                                                    Text("Ref: \(aloj.codigoReserva)")
-                                                        .font(.caption.monospaced().bold())
-                                                    Image(systemName: codigoAlojamientoCopiado == aloj.id ? "checkmark" : "doc.on.doc")
-                                                        .font(.caption2)
-                                                }
-                                            }
-                                            .buttonStyle(.bordered)
-                                        }
-                                        
-                                        let queryMapa = (aloj.direccion.isEmpty ? "\(aloj.nombre) \(escapada.destino)" : aloj.direccion)
-                                            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                                        if let mapUrl = URL(string: "http://maps.apple.com/?q=\(queryMapa)"), !queryMapa.isEmpty {
-                                            Link(destination: mapUrl) {
-                                                Label("Cómo llegar", systemImage: "map.fill")
-                                                    .font(.caption.bold())
-                                            }
-                                            .buttonStyle(.borderedProminent)
-                                        }
-                                        
-                                        if let reservaUrl = URL(string: aloj.urlReserva), !aloj.urlReserva.isEmpty {
-                                            Link(destination: reservaUrl) {
-                                                Image(systemName: "safari")
-                                                    .font(.caption.bold())
-                                            }
-                                            .buttonStyle(.bordered)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                            .onDelete { offsets in
-                                var copia = escapada
-                                copia.alojamientos.remove(atOffsets: offsets)
-                                copia.alojamiento = copia.alojamientos.first ?? AlojamientoInfo()
-                                store.actualizarEscapada(copia)
-                            }
-                            
-                            Button {
-                                mostrandoNuevoAlojamiento = true
-                            } label: {
-                                Label("Añadir otro alojamiento", systemImage: "plus.circle.fill")
-                                    .font(.caption.bold())
-                            }
                         }
                     } header: {
-                        Text(escapada.alojamientos.count > 1 ? "Alojamientos (\(escapada.alojamientos.count))" : "Alojamiento")
+                        Text("Alojamiento")
                     }
                 } else {
                     Section {
@@ -1579,6 +1532,56 @@ struct DetalleEscapadaView: View {
                     } header: {
                         Text("Sorpresa protegida")
                     }
+                }
+                
+                // Sección Retos Fotográficos del Viaje
+                Section {
+                    HStack {
+                        TextField("Nuevo reto fotográfico (ej: Foto al atardecer)", text: $nuevoRetoFotoTexto)
+                        Button {
+                            let limpio = nuevoRetoFotoTexto.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !limpio.isEmpty else { return }
+                            var copia = escapada
+                            copia.retosFotos.append(RetoFotoViaje(titulo: limpio, completado: false))
+                            store.actualizarEscapada(copia)
+                            nuevoRetoFotoTexto = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .disabled(nuevoRetoFotoTexto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    
+                    if escapada.retosFotos.isEmpty {
+                        Text("Añade ideas de fotos divertidas para hacer juntos en este viaje.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(escapada.retosFotos) { reto in
+                            HStack {
+                                Image(systemName: reto.completado ? "camera.fill" : "camera")
+                                    .foregroundStyle(reto.completado ? Color.accentColor : .secondary)
+                                Text(reto.titulo)
+                                    .strikethrough(reto.completado)
+                                    .foregroundStyle(reto.completado ? .secondary : .primary)
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                var copia = escapada
+                                if let idx = copia.retosFotos.firstIndex(where: { $0.id == reto.id }) {
+                                    copia.retosFotos[idx].completado.toggle()
+                                    store.actualizarEscapada(copia)
+                                }
+                            }
+                        }
+                        .onDelete { offsets in
+                            var copia = escapada
+                            copia.retosFotos.remove(atOffsets: offsets)
+                            store.actualizarEscapada(copia)
+                        }
+                    }
+                } header: {
+                    Text("Retos fotográficos del viaje")
                 }
                 
                 // Sección Checklist
@@ -1743,18 +1746,8 @@ struct DetalleEscapadaView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            VStack(alignment: .trailing, spacing: 2) {
-                                if gasto.codigoDivisa != "EUR" {
-                                    Text(String(format: "%.2f %@", gasto.importeOriginal, gasto.codigoDivisa))
-                                        .font(.subheadline.bold().monospacedDigit())
-                                    Text(String(format: "≈ %.2f €", gasto.importe))
-                                        .font(.caption2.bold().monospacedDigit())
-                                        .foregroundStyle(Color.accentColor)
-                                } else {
-                                    Text(String(format: "%.2f €", gasto.importe))
-                                        .font(.subheadline.bold().monospacedDigit())
-                                }
-                            }
+                            Text(String(format: "%.2f €", gasto.importe))
+                                .font(.subheadline.bold().monospacedDigit())
                         }
                     }
                     .onDelete { offsets in
@@ -1903,23 +1896,26 @@ struct DetalleEscapadaView: View {
                 if diaSeleccionado > escapada.totalDias {
                     diaSeleccionado = 1
                 }
+                if !sorpresaBloqueada {
+                    Task { await cargarPrevisionTiempo(destino: escapada.destino) }
+                }
             }
             .sheet(isPresented: $mostrandoAgregarVuelo) {
                 AgregarVueloSheet(escapada: escapada)
             }
-            .sheet(isPresented: $mostrandoAgregarTren) {
-                AgregarTrenSheet(escapada: escapada)
-            }
-            .sheet(isPresented: $mostrandoNuevoAlojamiento) {
-                EditarAlojamientoSheet(escapada: escapada, alojamientoExistente: nil)
-            }
-            .sheet(item: $alojamientoEnEdicion) { alojEditar in
-                EditarAlojamientoSheet(escapada: escapada, alojamientoExistente: alojEditar)
+            .sheet(isPresented: $mostrandoEditarAlojamiento) {
+                EditarAlojamientoSheet(escapada: escapada)
             }
             .sheet(isPresented: $mostrandoAgregarGasto) {
                 AgregarGastoSheet(escapada: escapada)
             }
         }
+    }
+    
+    private func cargarPrevisionTiempo(destino: String) async {
+        cargandoTiempo = true
+        previsionTiempo = await ServicioTiempoDestino.consultar(destino: destino, coordenada: nil)
+        cargandoTiempo = false
     }
     
     private func iconoCategoriaGasto(_ categoria: String) -> String {
@@ -2029,86 +2025,17 @@ struct VueloCardView: View {
     }
 }
 
-struct TrenCardView: View {
-    let tren: TrenViaje
-    @State private var copiado = false
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text(tren.trayecto.uppercased())
-                    .font(.caption2.bold())
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.accentColor.opacity(0.12))
-                    .clipShape(Capsule())
-                
-                Text("🚂 \(tren.operadora)")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            
-            HStack {
-                VStack(alignment: .leading) {
-                    Text(tren.estacionOrigen)
-                        .font(.subheadline.bold())
-                    Text(tren.fechaHoraSalida.formatted(date: .omitted, time: .shortened))
-                        .font(.caption.bold())
-                        .foregroundStyle(Color.accentColor)
-                }
-                Spacer()
-                Image(systemName: "tram.fill")
-                    .foregroundStyle(Color.accentColor)
-                Spacer()
-                VStack(alignment: .trailing) {
-                    Text(tren.estacionDestino)
-                        .font(.subheadline.bold())
-                    Text(tren.fechaHoraLlegada.formatted(date: .omitted, time: .shortened))
-                        .font(.caption.bold())
-                }
-            }
-            
-            HStack {
-                if !tren.localizador.isEmpty {
-                    Button {
-                        UIPasteboard.general.string = tren.localizador
-                        copiado = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copiado = false }
-                    } label: {
-                        HStack {
-                            Text("Loc: \(tren.localizador)")
-                                .font(.caption.monospaced().bold())
-                            Image(systemName: copiado ? "checkmark" : "doc.on.doc")
-                                .font(.caption)
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                }
-                
-                Spacer()
-                
-                if let url = URL(string: tren.urlReserva), !tren.urlReserva.isEmpty {
-                    Link(destination: url) {
-                        Label("Billete", systemImage: "arrow.up.right.square")
-                            .font(.caption.bold())
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-        }
-        .padding(.vertical, 6)
-    }
-}
-
 // ============================================================================
-// 8. FORMULARIOS MODALES (Nueva Escapada, Añadir Vuelo, Tren, Alojamiento, Gasto)
+// 8. FORMULARIOS MODALES (Nueva Escapada, Añadir Vuelo, Sincronizar)
 // ============================================================================
 
 struct NuevaEscapadaSheet: View {
     @EnvironmentObject var store: EscapadasStore
     @Environment(\.dismiss) var dismiss
+    
+    var tituloInicial: String = ""
+    var destinoInicial: String = ""
+    var iconoInicial: String = "✈️"
     
     @State private var titulo = ""
     @State private var destino = ""
@@ -2119,7 +2046,7 @@ struct NuevaEscapadaSheet: View {
     @State private var pista = ""
     @State private var diasRevelarAntes = 0
     
-    // Opción 1: Vuelos al crear la escapada
+    // Opción de vuelos al crear la escapada
     @State private var tieneVuelos = false
     @State private var localizadorVuelo = ""
     @State private var numeroVuelo = ""
@@ -2131,14 +2058,6 @@ struct NuevaEscapadaSheet: View {
     @State private var terminalVuelo = ""
     @State private var buscandoVuelo = false
     @State private var estadoAutocompletado = ""
-    
-    // Opción 2: Trenes al crear la escapada (independiente de vuelos)
-    @State private var tieneTrenes = false
-    @State private var operadoraTren = "Renfe"
-    @State private var estacionOrigenTren = ""
-    @State private var estacionDestinoTren = ""
-    @State private var localizadorTren = ""
-    @State private var horaSalidaTren = Calendar.current.date(bySettingHour: 10, minute: 0, second: 0, of: Date()) ?? Date()
     
     let iconos = ["✈️", "🏔️", "🏖️", "🌿", "🍷", "🚗", "🎁", "🏙️"]
     
@@ -2223,35 +2142,6 @@ struct NuevaEscapadaSheet: View {
                 }
                 
                 Section {
-                    Toggle("🚂 ¿Este viaje incluye trenes?", isOn: $tieneTrenes)
-                    
-                    if tieneTrenes {
-                        Picker("Operadora española", selection: $operadoraTren) {
-                            Text("Renfe (AVE / Avlo / Alvia)").tag("Renfe")
-                            Text("Iryo").tag("Iryo")
-                            Text("Ouigo España").tag("Ouigo")
-                        }
-                        
-                        TextField("Estación origen (ej: Madrid Atocha)", text: $estacionOrigenTren)
-                        TextField("Estación destino (ej: Sevilla Santa Justa)", text: $estacionDestinoTren)
-                        TextField("Localizador billete", text: $localizadorTren)
-                            .autocapitalization(.allCharacters)
-                        DatePicker("Hora de salida", selection: $horaSalidaTren, displayedComponents: .hourAndMinute)
-                        
-                        HStack(spacing: 10) {
-                            Link("Web Renfe", destination: URL(string: "https://www.renfe.com/es/es")!)
-                            Text("·")
-                            Link("Web Iryo", destination: URL(string: "https://iryo.eu/es")!)
-                            Text("·")
-                            Link("Web Ouigo", destination: URL(string: "https://www.ouigo.com/es")!)
-                        }
-                        .font(.caption.bold())
-                    }
-                } header: {
-                    Text("Trenes")
-                }
-                
-                Section {
                     Toggle("🎁 Modo plan sorpresa", isOn: $esSorpresa)
                     if esSorpresa {
                         TextField("Pista para tu pareja", text: $pista)
@@ -2267,6 +2157,11 @@ struct NuevaEscapadaSheet: View {
             }
             .navigationTitle("Nueva escapada")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if titulo.isEmpty && !tituloInicial.isEmpty { titulo = tituloInicial }
+                if destino.isEmpty && !destinoInicial.isEmpty { destino = destinoInicial }
+                if !iconoInicial.isEmpty { icono = iconoInicial }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }
@@ -2295,27 +2190,6 @@ struct NuevaEscapadaSheet: View {
                             )
                         }
                         
-                        var trenesIniciales: [TrenViaje] = []
-                        if tieneTrenes && (!estacionOrigenTren.isEmpty || !estacionDestinoTren.isEmpty || !localizadorTren.isEmpty) {
-                            let compsTren = Calendar.current.dateComponents([.hour, .minute], from: horaSalidaTren)
-                            let salidaTrenExacta = Calendar.current.date(bySettingHour: compsTren.hour ?? 10, minute: compsTren.minute ?? 0, second: 0, of: fechaInicio) ?? fechaInicio
-                            let llegadaTrenExacta = Calendar.current.date(byAdding: .minute, value: 150, to: salidaTrenExacta) ?? salidaTrenExacta
-                            let urlWebTren = operadoraTren == "Iryo" ? "https://iryo.eu/es" : (operadoraTren == "Ouigo" ? "https://www.ouigo.com/es" : "https://www.renfe.com/es/es")
-                            
-                            trenesIniciales.append(
-                                TrenViaje(
-                                    trayecto: "Ida",
-                                    operadora: operadoraTren,
-                                    estacionOrigen: estacionOrigenTren.isEmpty ? "Origen" : estacionOrigenTren,
-                                    estacionDestino: estacionDestinoTren.isEmpty ? destino : estacionDestinoTren,
-                                    fechaHoraSalida: salidaTrenExacta,
-                                    fechaHoraLlegada: llegadaTrenExacta,
-                                    localizador: localizadorTren.uppercased(),
-                                    urlReserva: urlWebTren
-                                )
-                            )
-                        }
-                        
                         let nueva = Escapada(
                             titulo: titulo,
                             destino: destino,
@@ -2323,15 +2197,17 @@ struct NuevaEscapadaSheet: View {
                             fechaFin: fechaFin,
                             icono: icono,
                             tieneVuelos: tieneVuelos,
-                            tieneTrenes: tieneTrenes,
                             esSorpresa: esSorpresa,
                             pistaSorpresa: pista,
                             diasRevelarSorpresaAntes: max(0, diasRevelarAntes),
                             recuerdo: "",
                             vuelos: vuelosIniciales,
-                            trenes: trenesIniciales,
                             checklist: [ItemChecklist(texto: "Revisar documentación", completado: false, asignadoA: "Ambos")],
-                            ideas: []
+                            ideas: [],
+                            retosFotos: [
+                                RetoFotoViaje(titulo: "Foto juntos con vistas de la ciudad", completado: false),
+                                RetoFotoViaje(titulo: "Algo dulce o café local", completado: false)
+                            ]
                         )
                         store.agregarEscapada(nueva)
                         dismiss()
@@ -2521,83 +2397,108 @@ struct AgregarVueloSheet: View {
     }
 }
 
-struct AgregarTrenSheet: View {
+struct WishlistDestinosView: View {
     @EnvironmentObject var store: EscapadasStore
-    @Environment(\.dismiss) var dismiss
-    let escapada: Escapada
+    @State private var nombreDestino = ""
+    @State private var notaDestino = ""
+    @State private var enlaceDestino = ""
+    @State private var iconoDestino = "✨"
+    @State private var destinoParaConvertir: DestinoDeseado? = nil
     
-    @State private var trayecto = "Ida"
-    @State private var operadora = "Renfe"
-    @State private var estacionOrigen = ""
-    @State private var estacionDestino = ""
-    @State private var localizador = ""
-    @State private var salida = Date()
-    @State private var llegada = Date()
-    @State private var urlReserva = "https://www.renfe.com/es/es"
+    let iconos = ["✨", "🏔️", "🏖️", "🗼", "🍣", "🌋", "🚂", "🏕️"]
     
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Billete de tren") {
-                    Picker("Trayecto", selection: $trayecto) {
-                        Text("Ida").tag("Ida")
-                        Text("Vuelta").tag("Vuelta")
+        List {
+            Section("Añadir destino soñado") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(iconos, id: \.self) { em in
+                            Text(em)
+                                .font(.title2)
+                                .padding(6)
+                                .background(iconoDestino == em ? Color.accentColor.opacity(0.2) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .onTapGesture { iconoDestino = em }
+                        }
                     }
-                    Picker("Operadora española", selection: $operadora) {
-                        Text("Renfe").tag("Renfe")
-                        Text("Iryo").tag("Iryo")
-                        Text("Ouigo").tag("Ouigo")
-                    }
-                    .onChange(of: operadora) { _, nuevaOp in
-                        if nuevaOp == "Iryo" { urlReserva = "https://iryo.eu/es" }
-                        else if nuevaOp == "Ouigo" { urlReserva = "https://www.ouigo.com/es" }
-                        else { urlReserva = "https://www.renfe.com/es/es" }
-                    }
-                    TextField("Estación origen (ej: Madrid Atocha)", text: $estacionOrigen)
-                    TextField("Estación destino (ej: Valencia Joaquín Sorolla)", text: $estacionDestino)
-                    TextField("Localizador", text: $localizador)
-                        .autocapitalization(.allCharacters)
-                    DatePicker("Salida", selection: $salida)
-                    DatePicker("Llegada", selection: $llegada)
                 }
+                TextField("Destino (ej: Kioto, Dolomitas, Islandia...)", text: $nombreDestino)
+                TextField("Nota o plan pendiente (opcional)", text: $notaDestino)
+                TextField("Enlace de inspiración (opcional)", text: $enlaceDestino)
+                    .keyboardType(.URL)
+                    .autocapitalization(.none)
                 
-                Section("Páginas oficiales de trenes en España") {
-                    Link("🚄 Renfe (renfe.com)", destination: URL(string: "https://www.renfe.com/es/es")!)
-                    Link("🚄 Iryo (iryo.eu)", destination: URL(string: "https://iryo.eu/es")!)
-                    Link("🚄 Ouigo (ouigo.com)", destination: URL(string: "https://www.ouigo.com/es")!)
-                }
-            }
-            .navigationTitle("Añadir tren")
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear {
-                salida = escapada.fechaInicio
-                llegada = escapada.fechaInicio.addingTimeInterval(9000)
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Guardar") {
-                        let tren = TrenViaje(
-                            trayecto: trayecto,
-                            operadora: operadora,
-                            estacionOrigen: estacionOrigen,
-                            estacionDestino: estacionDestino,
-                            fechaHoraSalida: salida,
-                            fechaHoraLlegada: llegada,
-                            localizador: localizador.uppercased(),
-                            urlReserva: urlReserva
-                        )
-                        var copia = escapada
-                        copia.tieneTrenes = true
-                        copia.trenes.append(tren)
-                        store.actualizarEscapada(copia)
-                        dismiss()
+                Button {
+                    let limpio = nombreDestino.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !limpio.isEmpty else { return }
+                    var urlLimpia = enlaceDestino.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !urlLimpia.isEmpty && !urlLimpia.hasPrefix("http") {
+                        urlLimpia = "https://" + urlLimpia
                     }
-                    .disabled(estacionOrigen.isEmpty || estacionDestino.isEmpty)
+                    let item = DestinoDeseado(
+                        nombre: limpio,
+                        nota: notaDestino.trimmingCharacters(in: .whitespacesAndNewlines),
+                        enlace: urlLimpia,
+                        icono: iconoDestino
+                    )
+                    store.agregarDestinoDeseado(item)
+                    nombreDestino = ""
+                    notaDestino = ""
+                    enlaceDestino = ""
+                } label: {
+                    Label("Guardar en wishlist", systemImage: "plus.circle.fill")
+                        .font(.subheadline.bold())
+                }
+                .disabled(nombreDestino.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            
+            Section("Algún día iremos") {
+                if store.wishlist.isEmpty {
+                    Text("Aún no habéis guardado destinos pendientes en vuestra wishlist.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(store.wishlist) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("\(item.icono) \(item.nombre)")
+                                    .font(.headline)
+                                Spacer()
+                                Button("Crear viaje") {
+                                    destinoParaConvertir = item
+                                }
+                                .font(.caption.bold())
+                                .buttonStyle(.borderedProminent)
+                            }
+                            if !item.nota.isEmpty {
+                                Text(item.nota)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let url = URL(string: item.enlace), !item.enlace.isEmpty {
+                                Link(destination: url) {
+                                    Label(item.enlace.replacingOccurrences(of: "https://", with: ""), systemImage: "safari")
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .onDelete { offsets in
+                        for idx in offsets {
+                            store.eliminarDestinoDeseado(store.wishlist[idx])
+                        }
+                    }
                 }
             }
+        }
+        .sheet(item: $destinoParaConvertir) { item in
+            NuevaEscapadaSheet(
+                tituloInicial: "Escapada a \(item.nombre)",
+                destinoInicial: item.nombre,
+                iconoInicial: item.icono
+            )
         }
     }
 }
@@ -2621,19 +2522,6 @@ struct YaVividoView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            
-                            let totalViaje = esc.gastos.reduce(0) { $0 + $1.importe }
-                            HStack {
-                                Label("Total gastado", systemImage: "eurosign.circle.fill")
-                                    .font(.caption.bold())
-                                    .foregroundStyle(Color.accentColor)
-                                Spacer()
-                                Text(String(format: "%.2f €", totalViaje))
-                                    .font(.caption.bold().monospacedDigit())
-                                    .foregroundStyle(Color.accentColor)
-                            }
-                            .padding(.vertical, 2)
-                            
                             if !esc.recuerdo.isEmpty {
                                 Text("\"\(esc.recuerdo)\"")
                                     .font(.caption)
@@ -2656,7 +2544,6 @@ struct EditarAlojamientoSheet: View {
     @EnvironmentObject var store: EscapadasStore
     @Environment(\.dismiss) var dismiss
     let escapada: Escapada
-    let alojamientoExistente: AlojamientoInfo?
     
     @State private var nombre = ""
     @State private var direccion = ""
@@ -2683,17 +2570,15 @@ struct EditarAlojamientoSheet: View {
                         .autocapitalization(.none)
                 }
             }
-            .navigationTitle(alojamientoExistente == nil ? "Nuevo alojamiento" : "Editar alojamiento")
+            .navigationTitle("Alojamiento")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
-                if let aloj = alojamientoExistente {
-                    nombre = aloj.nombre
-                    direccion = aloj.direccion
-                    horaCheckIn = aloj.horaCheckIn
-                    horaCheckOut = aloj.horaCheckOut
-                    codigoReserva = aloj.codigoReserva
-                    urlReserva = aloj.urlReserva
-                }
+                nombre = escapada.alojamiento.nombre
+                direccion = escapada.alojamiento.direccion
+                horaCheckIn = escapada.alojamiento.horaCheckIn
+                horaCheckOut = escapada.alojamiento.horaCheckOut
+                codigoReserva = escapada.alojamiento.codigoReserva
+                urlReserva = escapada.alojamiento.urlReserva
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2705,8 +2590,8 @@ struct EditarAlojamientoSheet: View {
                         if !urlLimpia.isEmpty && !urlLimpia.hasPrefix("http") {
                             urlLimpia = "https://" + urlLimpia
                         }
-                        let infoActualizada = AlojamientoInfo(
-                            id: alojamientoExistente?.id ?? UUID(),
+                        var copia = escapada
+                        copia.alojamiento = AlojamientoInfo(
                             nombre: nombre.trimmingCharacters(in: .whitespacesAndNewlines),
                             direccion: direccion.trimmingCharacters(in: .whitespacesAndNewlines),
                             horaCheckIn: horaCheckIn.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2714,18 +2599,9 @@ struct EditarAlojamientoSheet: View {
                             codigoReserva: codigoReserva.trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
                             urlReserva: urlLimpia
                         )
-                        var copia = escapada
-                        if let existente = alojamientoExistente,
-                           let idx = copia.alojamientos.firstIndex(where: { $0.id == existente.id }) {
-                            copia.alojamientos[idx] = infoActualizada
-                        } else {
-                            copia.alojamientos.append(infoActualizada)
-                        }
-                        copia.alojamiento = copia.alojamientos.first ?? AlojamientoInfo()
                         store.actualizarEscapada(copia)
                         dismiss()
                     }
-                    .disabled(nombre.trimmingCharacters(in: .whitespaces).isEmpty && direccion.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
@@ -2739,65 +2615,18 @@ struct AgregarGastoSheet: View {
     
     @State private var concepto = ""
     @State private var importeTexto = ""
-    @State private var regionFiltro = "Europa"
-    @State private var divisaSeleccionada: DivisaViaje = DIVISAS_SOPORTADAS[0]
     @State private var pagadoPor = "Yo"
     @State private var categoria = "Comida"
     
     let categorias = ["Comida", "Transporte", "Alojamiento", "Entradas", "Otros"]
-    let regiones = ["Europa", "América", "Asia"]
-    
-    private var divisasDeRegion: [DivisaViaje] {
-        DIVISAS_SOPORTADAS.filter { $0.region == regionFiltro }
-    }
-    
-    private var importeNumerico: Double {
-        let limpio = importeTexto.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)
-        return Double(limpio) ?? 0
-    }
-    
-    private var equivalenteEuros: Double {
-        importeNumerico * divisaSeleccionada.tasaAEuros
-    }
     
     var body: some View {
         NavigationStack {
             Form {
                 Section("Detalle del gasto") {
                     TextField("Concepto (ej: Cena en el centro)", text: $concepto)
-                    
-                    Picker("Continente de la moneda", selection: $regionFiltro) {
-                        ForEach(regiones, id: \.self) { reg in
-                            Text(reg).tag(reg)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: regionFiltro) { _, nuevaRegion in
-                        if let primera = DIVISAS_SOPORTADAS.first(where: { $0.region == nuevaRegion }) {
-                            divisaSeleccionada = primera
-                        }
-                    }
-                    
-                    Picker("Divisa pagada", selection: $divisaSeleccionada) {
-                        ForEach(divisasDeRegion) { div in
-                            Text("\(div.id) · \(div.nombre) (\(div.simbolo))").tag(div)
-                        }
-                    }
-                    
-                    TextField("Importe en \(divisaSeleccionada.id) (ej: 42,50)", text: $importeTexto)
+                    TextField("Importe en € (ej: 42,50)", text: $importeTexto)
                         .keyboardType(.decimalPad)
-                    
-                    if divisaSeleccionada.id != "EUR" && importeNumerico > 0 {
-                        HStack {
-                            Text("Conversión a Euros:")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(String(format: "%.2f %@ = %.2f €", importeNumerico, divisaSeleccionada.id, equivalenteEuros))
-                                .font(.caption.bold())
-                                .foregroundStyle(Color.accentColor)
-                        }
-                    }
                 }
                 
                 Section("Reparto y categoría") {
@@ -2822,12 +2651,11 @@ struct AgregarGastoSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Añadir") {
-                        guard importeNumerico > 0 else { return }
+                        let limpio = importeTexto.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespaces)
+                        guard let valor = Double(limpio), valor > 0 else { return }
                         let nuevoGasto = GastoViaje(
                             concepto: concepto.trimmingCharacters(in: .whitespacesAndNewlines),
-                            importe: equivalenteEuros,
-                            importeOriginal: importeNumerico,
-                            codigoDivisa: divisaSeleccionada.id,
+                            importe: valor,
                             pagadoPor: pagadoPor,
                             categoria: categoria
                         )
@@ -2836,7 +2664,7 @@ struct AgregarGastoSheet: View {
                         store.actualizarEscapada(copia)
                         dismiss()
                     }
-                    .disabled(concepto.trimmingCharacters(in: .whitespaces).isEmpty || importeNumerico <= 0)
+                    .disabled(concepto.trimmingCharacters(in: .whitespaces).isEmpty || (Double(importeTexto.replacingOccurrences(of: ",", with: ".")) ?? 0) <= 0)
                 }
             }
         }
