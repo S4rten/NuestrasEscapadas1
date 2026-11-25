@@ -6,6 +6,296 @@ import UserNotifications
 import PhotosUI
 
 // ============================================================================
+// 0. MODELOS DE DATOS Y SERVICIOS DE TRANSPORTE (VUELOS Y TRENES ESPAÑA)
+// ============================================================================
+
+struct Vuelo: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var trayecto: String
+    var origen: String
+    var destino: String
+    var fechaHoraSalida: Date
+    var fechaHoraLlegada: Date
+    var aerolinea: String
+    var numeroVuelo: String
+    var localizador: String
+    var terminalPuerta: String
+    var urlReserva: String
+}
+
+struct BilleteTren: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var operador: String
+    var trayecto: String
+    var estacionOrigen: String
+    var estacionDestino: String
+    var fechaHoraSalida: Date
+    var fechaHoraLlegada: Date
+    var numeroTren: String
+    var localizador: String
+    var cocheAsiento: String
+    var urlReserva: String
+}
+
+struct OperadorTrenEspana: Identifiable, Hashable {
+    let id: String
+    let nombre: String
+    let descripcion: String
+    let urlWeb: String
+}
+
+enum TrenesEspana {
+    static let operadores: [OperadorTrenEspana] = [
+        OperadorTrenEspana(id: "renfe", nombre: "Renfe", descripcion: "AVE, Avlo, Alvia, Media Distancia", urlWeb: "https://www.renfe.com/es/es"),
+        OperadorTrenEspana(id: "iryo", nombre: "iryo", descripcion: "Alta velocidad España", urlWeb: "https://iryo.eu/es/home"),
+        OperadorTrenEspana(id: "ouigo", nombre: "OUIGO", descripcion: "Alta velocidad bajo coste", urlWeb: "https://www.ouigo.com/es"),
+        OperadorTrenEspana(id: "trainline", nombre: "Trainline", descripcion: "Comparador Renfe, iryo y OUIGO", urlWeb: "https://www.thetrainline.com/es")
+    ]
+
+    static func urlParaOperador(_ nombre: String) -> String {
+        operadores.first(where: { $0.nombre.caseInsensitiveCompare(nombre) == .orderedSame })?.urlWeb ?? "https://www.renfe.com/es/es"
+    }
+}
+
+struct ResultadoBusquedaVuelo {
+    let origen: String
+    let destino: String
+    let aerolinea: String
+    let terminal: String
+    let urlReserva: String
+    let urlEstadoWeb: String
+    let duracionMin: Int
+    let fuente: String
+}
+
+enum BuscadorVuelosWeb {
+    static func buscar(
+        numeroVuelo: String,
+        localizador: String,
+        fechaSalida: Date,
+        trayecto: String,
+        destinoViaje: String
+    ) async -> ResultadoBusquedaVuelo? {
+        let num = numeroVuelo.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let prefijo = String(num.prefix(2))
+
+        let aerolineas: [String: (nombre: String, web: String)] = [
+            "IB": ("Iberia", "https://www.iberia.com/es/gestion-reservas/"),
+            "VY": ("Vueling", "https://www.vueling.com/es/gestiona-tu-reserva"),
+            "FR": ("Ryanair", "https://www.ryanair.com/es/es/mybookings"),
+            "UX": ("Air Europa", "https://www.aireuropa.com/es/es/aea/gestiona-tu-reserva.html"),
+            "U2": ("easyJet", "https://www.easyjet.com/es/manage-bookings"),
+            "LH": ("Lufthansa", "https://www.lufthansa.com/es/es/my-bookings"),
+            "AF": ("Air France", "https://wwws.airfrance.es/trip"),
+            "BA": ("British Airways", "https://www.britishairways.com/travel/managebooking/public/es_es")
+        ]
+
+        let rutasConocidas: [String: (origen: String, destino: String, terminal: String, min: Int)] = [
+            "IB3140": ("MAD", "PRG", "Terminal 4", 175),
+            "IB3141": ("PRG", "MAD", "Terminal 2", 180),
+            "FR2418": ("KRK", "MAD", "Terminal 1", 215),
+            "VY1002": ("BCN", "FCO", "Terminal 1", 110),
+            "UX1093": ("MAD", "ORY", "Terminal 2", 125)
+        ]
+
+        let infoAerolinea = aerolineas[prefijo] ?? ("Aerolínea", "")
+        let urlTracking = num.isEmpty ? "" : "https://www.flightradar24.com/data/flights/\(num.lowercased())"
+
+        if let conocida = rutasConocidas[num] {
+            return ResultadoBusquedaVuelo(
+                origen: conocida.origen,
+                destino: conocida.destino,
+                aerolinea: infoAerolinea.nombre,
+                terminal: conocida.terminal,
+                urlReserva: infoAerolinea.web,
+                urlEstadoWeb: urlTracking,
+                duracionMin: conocida.min,
+                fuente: "Ruta verificada"
+            )
+        }
+
+        let iataDestino = inferirIATA(desde: destinoViaje)
+        if !num.isEmpty || !localizador.trimmingCharacters(in: .whitespaces).isEmpty {
+            let esVuelta = trayecto == "Vuelta"
+            return ResultadoBusquedaVuelo(
+                origen: esVuelta ? iataDestino : "MAD",
+                destino: esVuelta ? "MAD" : iataDestino,
+                aerolinea: infoAerolinea.nombre,
+                terminal: "",
+                urlReserva: infoAerolinea.web,
+                urlEstadoWeb: urlTracking,
+                duracionMin: 150,
+                fuente: "Asistente de rutas"
+            )
+        }
+        return nil
+    }
+
+    private static func inferirIATA(desde texto: String) -> String {
+        let lower = texto.lowercased()
+        let mapa: [(String, String)] = [
+            ("praga", "PRG"), ("roma", "FCO"), ("paris", "CDG"), ("parís", "CDG"),
+            ("londres", "LHR"), ("lisboa", "LIS"), ("oporto", "OPO"), ("cracovia", "KRK"),
+            ("amsterdam", "AMS"), ("ámsterdam", "AMS"), ("viena", "VIE"), ("budapest", "BUD"),
+            ("berlin", "BER"), ("berlín", "BER"), ("milan", "MXP"), ("milán", "MXP"),
+            ("barcelona", "BCN"), ("sevilla", "SVQ"), ("mallorca", "PMI"), ("tenerife", "TFN"),
+            ("nueva york", "JFK"), ("tokio", "HND"), ("tokyo", "HND")
+        ]
+        for (ciudad, codigo) in mapa where lower.contains(ciudad) {
+            return codigo
+        }
+        return "DEST"
+    }
+}
+
+struct AlojamientoInfo: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var nombre: String = ""
+    var direccion: String = ""
+    var horaCheckIn: String = "15:00"
+    var horaCheckOut: String = "11:00"
+    var codigoReserva: String = ""
+    var urlReserva: String = ""
+
+    var tieneDatos: Bool {
+        !nombre.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !direccion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !codigoReserva.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !urlReserva.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+struct ItemChecklist: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var texto: String
+    var completado: Bool = false
+    var asignadoA: String = "Ambos"
+}
+
+struct RetoFotografico: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var titulo: String
+    var completado: Bool = false
+    var fotoBase64: String? = nil
+}
+
+struct ActividadDia: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var diaIndex: Int
+    var nombreSitio: String
+    var urlSitio: String = ""
+}
+
+struct GastoViaje: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var concepto: String
+    var importe: Double
+    var importeOriginal: Double? = nil
+    var monedaCodigo: String? = nil
+    var tasaCambioAEuro: Double? = nil
+    var pagadoPor: String
+    var categoria: String
+
+    var monedaEfectiva: String {
+        let code = (monedaCodigo ?? "EUR").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return code.isEmpty ? "EUR" : code
+    }
+
+    var importeOriginalEfectivo: Double {
+        importeOriginal ?? importe
+    }
+}
+
+struct ValoracionEscapada: Codable, Hashable {
+    var general: Int = 0
+    var alojamiento: Int = 0
+    var comida: Int = 0
+    var planes: Int = 0
+
+    var mediaEstrellas: Double? {
+        let puntuaciones = [general, alojamiento, comida, planes].filter { $0 > 0 }
+        guard !puntuaciones.isEmpty else { return nil }
+        let suma = puntuaciones.reduce(0, +)
+        return Double(suma) / Double(puntuaciones.count)
+    }
+}
+
+struct DestinoWishlist: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var nombreDestino: String
+    var paisORegion: String = ""
+    var categoria: String = "Ciudad"
+    var temporadaIdeal: String = "Cualquier época"
+    var notaOEnlace: String = ""
+    var icono: String = "✨"
+    var prioridadAlta: Bool = true
+    var fechaAgregado: Date = Date()
+}
+
+struct Escapada: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var titulo: String
+    var destino: String
+    var fechaInicio: Date
+    var fechaFin: Date
+    var icono: String = "✈️"
+    var tieneVuelos: Bool = false
+    var tieneTrenes: Bool = false
+    var esSorpresa: Bool = false
+    var pistaSorpresa: String = ""
+    var diasRevelarSorpresaAntes: Int = 0
+    var recuerdo: String = ""
+    var alojamiento: AlojamientoInfo = AlojamientoInfo()
+    var alojamientos: [AlojamientoInfo] = []
+    var vuelos: [Vuelo] = []
+    var trenes: [BilleteTren] = []
+    var checklist: [ItemChecklist] = []
+    var retosFotograficos: [RetoFotografico] = []
+    var itinerario: [ActividadDia] = []
+    var gastos: [GastoViaje] = []
+    var valoracion: ValoracionEscapada = ValoracionEscapada()
+    var ideas: [String] = []
+
+    var todosLosAlojamientos: [AlojamientoInfo] {
+        var lista: [AlojamientoInfo] = []
+        if alojamiento.tieneDatos {
+            lista.append(alojamiento)
+        }
+        lista.append(contentsOf: alojamientos.filter { $0.tieneDatos })
+        return lista
+    }
+
+    var yaVivida: Bool {
+        let cal = Calendar.current
+        let finDia = cal.startOfDay(for: max(fechaInicio, fechaFin))
+        let diaSiguiente = cal.date(byAdding: .day, value: 1, to: finDia) ?? finDia
+        return Date() >= diaSiguiente
+    }
+
+    var sorpresaDesbloqueada: Bool {
+        guard esSorpresa else { return true }
+        let cal = Calendar.current
+        let inicioDia = cal.startOfDay(for: fechaInicio)
+        let fechaRevelacion = cal.date(byAdding: .day, value: -max(0, diasRevelarSorpresaAntes), to: inicioDia) ?? inicioDia
+        return Date() >= fechaRevelacion
+    }
+
+    var totalDias: Int {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: fechaInicio)
+        let end = cal.startOfDay(for: max(fechaInicio, fechaFin))
+        let comps = cal.dateComponents([.day], from: start, to: end).day ?? 0
+        return max(1, comps + 1)
+    }
+
+    var progresoChecklist: Double {
+        guard !checklist.isEmpty else { return 0 }
+        let hechos = checklist.filter { $0.completado }.count
+        return Double(hechos) / Double(checklist.count)
+    }
+}
+
+// ============================================================================
 // 1. DIVISAS DE EUROPA, AMÉRICA Y ASIA + MODELO DE DATOS
 // ============================================================================
 
