@@ -220,38 +220,6 @@ struct ActividadDia: Identifiable, Codable, Hashable {
     var diaIndex: Int             // 1, 2, 3... según los días del viaje
     var nombreSitio: String
     var urlSitio: String
-    var hora: String = ""
-    
-    init(id: UUID = UUID(), diaIndex: Int, nombreSitio: String, urlSitio: String, hora: String = "") {
-        self.id = id
-        self.diaIndex = diaIndex
-        self.nombreSitio = nombreSitio
-        self.urlSitio = urlSitio
-        self.hora = hora
-    }
-    
-    enum CodingKeys: String, CodingKey {
-        case id, diaIndex, nombreSitio, urlSitio, hora
-    }
-    
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        diaIndex = try c.decode(Int.self, forKey: .diaIndex)
-        nombreSitio = try c.decode(String.self, forKey: .nombreSitio)
-        urlSitio = try c.decodeIfPresent(String.self, forKey: .urlSitio) ?? ""
-        hora = try c.decodeIfPresent(String.self, forKey: .hora) ?? ""
-    }
-}
-
-struct EventoLineaTemporal: Identifiable {
-    let id = UUID()
-    let minutosOrden: Int
-    let horaTexto: String
-    let icono: String
-    let titulo: String
-    let subtitulo: String
-    let url: String?
 }
 
 struct ValoracionViaje: Codable, Hashable {
@@ -260,6 +228,19 @@ struct ValoracionViaje: Codable, Hashable {
     var gastronomia: Int = 0
     var alojamientoDescanso: Int = 0
     var momentosJuntos: Int = 0
+    
+    var mediaEstrellas: Double? {
+        let notas = [
+            experienciaCiudad,
+            museosCultura,
+            gastronomia,
+            alojamientoDescanso,
+            momentosJuntos
+        ].filter { $0 > 0 }
+        guard !notas.isEmpty else { return nil }
+        let suma = notas.reduce(0, +)
+        return Double(suma) / Double(notas.count)
+    }
 }
 
 struct Escapada: Identifiable, Codable, Hashable {
@@ -320,116 +301,6 @@ struct Escapada: Identifiable, Codable, Hashable {
         guard !checklist.isEmpty else { return 0 }
         let completados = checklist.filter { $0.completado }.count
         return Double(completados) / Double(checklist.count)
-    }
-    
-    func eventosLineaTemporal(paraDia diaIndex: Int) -> [EventoLineaTemporal] {
-        let cal = Calendar.current
-        let fechaDia = cal.startOfDay(for: fechaParaDia(diaIndex))
-        var eventos: [EventoLineaTemporal] = []
-        
-        // 1. Vuelos en ese día
-        for vuelo in vuelos {
-            if cal.isDate(vuelo.fechaHoraSalida, inSameDayAs: fechaDia) {
-                let comps = cal.dateComponents([.hour, .minute], from: vuelo.fechaHoraSalida)
-                let mins = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-                let horaStr = vuelo.fechaHoraSalida.formatted(date: .omitted, time: .shortened)
-                let llegadaStr = vuelo.fechaHoraLlegada.formatted(date: .omitted, time: .shortened)
-                eventos.append(
-                    EventoLineaTemporal(
-                        minutosOrden: mins,
-                        horaTexto: horaStr,
-                        icono: "✈️",
-                        titulo: "Vuelo \(vuelo.trayecto): \(vuelo.origen) → \(vuelo.destino)",
-                        subtitulo: "\(vuelo.aerolinea) \(vuelo.numeroVuelo) · Llegada \(llegadaStr)",
-                        url: vuelo.urlReserva.isEmpty ? nil : vuelo.urlReserva
-                    )
-                )
-            }
-        }
-        
-        // 2. Trenes en ese día
-        for tren in trenes {
-            if cal.isDate(tren.fechaHoraSalida, inSameDayAs: fechaDia) {
-                let comps = cal.dateComponents([.hour, .minute], from: tren.fechaHoraSalida)
-                let mins = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-                let horaStr = tren.fechaHoraSalida.formatted(date: .omitted, time: .shortened)
-                let llegadaStr = tren.fechaHoraLlegada.formatted(date: .omitted, time: .shortened)
-                eventos.append(
-                    EventoLineaTemporal(
-                        minutosOrden: mins,
-                        horaTexto: horaStr,
-                        icono: "🚄",
-                        titulo: "Tren \(tren.trayecto): \(tren.estacionOrigen) → \(tren.estacionDestino)",
-                        subtitulo: "\(tren.operadora) · Llegada \(llegadaStr)",
-                        url: tren.urlReserva.isEmpty ? nil : tren.urlReserva
-                    )
-                )
-            }
-        }
-        
-        // 3. Check-in (Día 1) y Check-out (Último día) de alojamientos
-        if diaIndex == 1 {
-            for aloj in alojamientos where aloj.tieneDatos {
-                let mins = Self.minutosDesdeTextoHora(aloj.horaCheckIn, defecto: 15 * 60)
-                eventos.append(
-                    EventoLineaTemporal(
-                        minutosOrden: mins,
-                        horaTexto: aloj.horaCheckIn.isEmpty ? "15:00" : aloj.horaCheckIn,
-                        icono: "🛎️",
-                        titulo: "Check-in: \(aloj.nombre.isEmpty ? "Alojamiento" : aloj.nombre)",
-                        subtitulo: aloj.direccion.isEmpty ? "Entrada al alojamiento" : aloj.direccion,
-                        url: aloj.urlReserva.isEmpty ? nil : aloj.urlReserva
-                    )
-                )
-            }
-        }
-        
-        if diaIndex == totalDias {
-            for aloj in alojamientos where aloj.tieneDatos {
-                let mins = Self.minutosDesdeTextoHora(aloj.horaCheckOut, defecto: 11 * 60)
-                eventos.append(
-                    EventoLineaTemporal(
-                        minutosOrden: mins,
-                        horaTexto: aloj.horaCheckOut.isEmpty ? "11:00" : aloj.horaCheckOut,
-                        icono: "🧳",
-                        titulo: "Check-out: \(aloj.nombre.isEmpty ? "Alojamiento" : aloj.nombre)",
-                        subtitulo: "Salida del alojamiento",
-                        url: aloj.urlReserva.isEmpty ? nil : aloj.urlReserva
-                    )
-                )
-            }
-        }
-        
-        // 4. Actividades del itinerario en ese día
-        for act in itinerario where act.diaIndex == diaIndex {
-            let horaLimpia = act.hora.trimmingCharacters(in: .whitespacesAndNewlines)
-            let mins = horaLimpia.isEmpty ? 24 * 60 : Self.minutosDesdeTextoHora(horaLimpia, defecto: 24 * 60)
-            eventos.append(
-                EventoLineaTemporal(
-                    minutosOrden: mins,
-                    horaTexto: horaLimpia.isEmpty ? "Libre" : horaLimpia,
-                    icono: "📍",
-                    titulo: act.nombreSitio,
-                    subtitulo: "Plan del itinerario",
-                    url: act.urlSitio.isEmpty ? nil : act.urlSitio
-                )
-            )
-        }
-        
-        return eventos.sorted { $0.minutosOrden < $1.minutosOrden }
-    }
-    
-    private static func minutosDesdeTextoHora(_ texto: String, defecto: Int) -> Int {
-        let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
-        let partes = limpio.split(separator: ":")
-        guard partes.count >= 2,
-              let h = Int(partes[0]),
-              let m = Int(partes[1].prefix(2)),
-              (0...23).contains(h),
-              (0...59).contains(m) else {
-            return defecto
-        }
-        return h * 60 + m
     }
     
     init(
@@ -1328,7 +1199,6 @@ struct DetalleEscapadaView: View {
     
     @State private var diaSeleccionado: Int = 1
     @State private var nuevoSitioNombre = ""
-    @State private var nuevoSitioHora = ""
     @State private var nuevoSitioURL = ""
     @State private var nuevoItemTexto = ""
     @State private var nuevoItemAsignado = "Ambos"
@@ -1413,7 +1283,7 @@ struct DetalleEscapadaView: View {
                     }
                 }
                 
-                // Sección Plan por Días + Línea Temporal del Día (oculta si la sorpresa sigue bloqueada)
+                // Sección Plan por Días (oculta si la sorpresa sigue bloqueada)
                 if !sorpresaBloqueada {
                     Section {
                         if escapada.totalDias > 1 {
@@ -1444,63 +1314,9 @@ struct DetalleEscapadaView: View {
                             }
                         }
                         
-                        // Línea temporal automática ordenada por horas (vuelos, trenes, check-in/out y planes)
-                        let eventosCronologicos = escapada.eventosLineaTemporal(paraDia: diaSeleccionado)
-                        if !eventosCronologicos.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Label("Línea temporal · Día \(diaSeleccionado)", systemImage: "clock.arrow.circlepath")
-                                    .font(.caption.bold())
-                                    .foregroundStyle(Color.accentColor)
-                                
-                                VStack(alignment: .leading, spacing: 0) {
-                                    ForEach(Array(eventosCronologicos.enumerated()), id: \.element.id) { idx, ev in
-                                        HStack(alignment: .top, spacing: 10) {
-                                            Text(ev.horaTexto)
-                                                .font(.caption2.bold().monospacedDigit())
-                                                .foregroundStyle(ev.horaTexto == "Libre" ? .secondary : Color.accentColor)
-                                                .frame(width: 42, alignment: .trailing)
-                                                .padding(.top, 2)
-                                            
-                                            VStack(spacing: 0) {
-                                                Circle()
-                                                    .fill(Color.accentColor)
-                                                    .frame(width: 8, height: 8)
-                                                    .padding(.top, 5)
-                                                if idx < eventosCronologicos.count - 1 {
-                                                    Rectangle()
-                                                        .fill(Color.accentColor.opacity(0.28))
-                                                        .frame(width: 2)
-                                                        .frame(minHeight: 24)
-                                                }
-                                            }
-                                            
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text("\(ev.icono) \(ev.titulo)")
-                                                    .font(.caption.bold())
-                                                Text(ev.subtitulo)
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            .padding(.bottom, idx < eventosCronologicos.count - 1 ? 8 : 0)
-                                            
-                                            Spacer()
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(12)
-                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                        
-                        // Formulario para añadir sitio, hora y URL al día seleccionado
+                        // Formulario para añadir sitio y URL al día seleccionado
                         VStack(spacing: 8) {
-                            HStack(spacing: 8) {
-                                TextField("Hora (ej: 10:30)", text: $nuevoSitioHora)
-                                    .keyboardType(.numbersAndPunctuation)
-                                    .frame(width: 105)
-                                TextField("Nombre del sitio o plan (ej: Museo del Prado)", text: $nuevoSitioNombre)
-                            }
+                            TextField("Nombre del sitio o plan (ej: Museo del Prado)", text: $nuevoSitioNombre)
                             HStack {
                                 TextField("URL opcional (ej: https://...)", text: $nuevoSitioURL)
                                     .keyboardType(.URL)
@@ -1514,19 +1330,16 @@ struct DetalleEscapadaView: View {
                                     if !urlLimpia.isEmpty && !urlLimpia.hasPrefix("http") {
                                         urlLimpia = "https://" + urlLimpia
                                     }
-                                    let horaLimpia = nuevoSitioHora.trimmingCharacters(in: .whitespacesAndNewlines)
                                     var copia = escapada
                                     copia.itinerario.append(
                                         ActividadDia(
                                             diaIndex: diaSeleccionado,
                                             nombreSitio: nombre,
-                                            urlSitio: urlLimpia,
-                                            hora: horaLimpia
+                                            urlSitio: urlLimpia
                                         )
                                     )
                                     store.actualizarEscapada(copia)
                                     nuevoSitioNombre = ""
-                                    nuevoSitioHora = ""
                                     nuevoSitioURL = ""
                                 } label: {
                                     Image(systemName: "plus.circle.fill")
@@ -1548,19 +1361,8 @@ struct DetalleEscapadaView: View {
                                     Image(systemName: "mappin.and.ellipse")
                                         .foregroundStyle(Color.accentColor)
                                     VStack(alignment: .leading, spacing: 3) {
-                                        HStack(spacing: 6) {
-                                            if !act.hora.trimmingCharacters(in: .whitespaces).isEmpty {
-                                                Text(act.hora)
-                                                    .font(.caption2.bold().monospacedDigit())
-                                                    .foregroundStyle(Color.accentColor)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 2)
-                                                    .background(Color.accentColor.opacity(0.12))
-                                                    .clipShape(Capsule())
-                                            }
-                                            Text(act.nombreSitio)
-                                                .font(.subheadline.weight(.medium))
-                                        }
+                                        Text(act.nombreSitio)
+                                            .font(.subheadline.weight(.medium))
                                         if let url = URL(string: act.urlSitio), !act.urlSitio.isEmpty {
                                             Link(destination: url) {
                                                 Label(act.urlSitio.replacingOccurrences(of: "https://", with: ""), systemImage: "safari")
@@ -1987,8 +1789,24 @@ struct DetalleEscapadaView: View {
                 if escapada.yaVivida {
                     Section {
                         VStack(alignment: .leading, spacing: 14) {
-                            Text("Puntuación del viaje (1 a 5)")
-                                .font(.subheadline.bold())
+                            HStack {
+                                Text("Puntuación del viaje (1 a 5)")
+                                    .font(.subheadline.bold())
+                                Spacer()
+                                if let media = escapada.valoracion.mediaEstrellas {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "star.fill")
+                                            .font(.caption)
+                                        Text(String(format: "%.1f / 5", media))
+                                            .font(.caption.bold().monospacedDigit())
+                                    }
+                                    .foregroundStyle(.orange)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.orange.opacity(0.14))
+                                    .clipShape(Capsule())
+                                }
+                            }
                             
                             FilaEstrellasView(
                                 titulo: "🏙️ Experiencia de la ciudad",
@@ -2815,50 +2633,174 @@ struct AgregarTrenSheet: View {
 
 struct YaVividoView: View {
     @EnvironmentObject var store: EscapadasStore
+    @State private var ordenarPorRanking = false
+    @State private var filtroEstrellasMin: Int = 0
+    
+    private var top3Escapadas: [Escapada] {
+        store.escapadasPasadas
+            .filter { ($0.valoracion.mediaEstrellas ?? 0) > 0 }
+            .sorted {
+                let m1 = $0.valoracion.mediaEstrellas ?? 0
+                let m2 = $1.valoracion.mediaEstrellas ?? 0
+                if m1 == m2 { return $0.fechaInicio > $1.fechaInicio }
+                return m1 > m2
+            }
+            .prefix(3)
+            .map { $0 }
+    }
+    
+    private var escapadasFiltradas: [Escapada] {
+        let base = store.escapadasPasadas.filter { esc in
+            if filtroEstrellasMin == 0 { return true }
+            let media = esc.valoracion.mediaEstrellas ?? 0
+            return media >= Double(filtroEstrellasMin)
+        }
+        if ordenarPorRanking {
+            return base.sorted {
+                let m1 = $0.valoracion.mediaEstrellas ?? 0
+                let m2 = $1.valoracion.mediaEstrellas ?? 0
+                if m1 == m2 { return $0.fechaInicio > $1.fechaInicio }
+                return m1 > m2
+            }
+        }
+        return base
+    }
     
     var body: some View {
         List {
             if store.escapadasPasadas.isEmpty {
                 ContentUnavailableView("Aún no hay recuerdos", systemImage: "photo.on.rectangle.angled")
             } else {
-                ForEach(store.escapadasPasadas) { esc in
-                    NavigationLink(value: esc) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("\(esc.icono) \(esc.titulo)")
-                                    .font(.headline)
-                                Spacer()
-                                Text(esc.fechaInicio.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            
-                            let totalViaje = esc.gastos.reduce(0) { $0 + $1.importe }
-                            HStack {
-                                Label("Total gastado", systemImage: "eurosign.circle.fill")
-                                    .font(.caption.bold())
-                                    .foregroundStyle(Color.accentColor)
-                                Spacer()
-                                Text(String(format: "%.2f €", totalViaje))
-                                    .font(.caption.bold().monospacedDigit())
-                                    .foregroundStyle(Color.accentColor)
-                            }
-                            .padding(.vertical, 2)
-                            
-                            if !esc.recuerdo.isEmpty {
-                                Text("\"\(esc.recuerdo)\"")
-                                    .font(.caption)
-                                    .italic()
-                                    .foregroundStyle(.secondary)
+                // Podio Top 3 de mejores escapadas puntuadas
+                if !top3Escapadas.isEmpty {
+                    Section {
+                        ForEach(Array(top3Escapadas.enumerated()), id: \.element.id) { idx, esc in
+                            NavigationLink(value: esc) {
+                                HStack(spacing: 12) {
+                                    Text(medallaRanking(idx))
+                                        .font(.title3)
+                                    Text(esc.icono)
+                                        .font(.title3)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(esc.titulo)
+                                            .font(.subheadline.bold())
+                                        Text(esc.destino)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if let media = esc.valoracion.mediaEstrellas {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "star.fill")
+                                                .font(.caption2)
+                                            Text(String(format: "%.1f", media))
+                                                .font(.caption.bold().monospacedDigit())
+                                        }
+                                        .foregroundStyle(.orange)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.orange.opacity(0.14))
+                                        .clipShape(Capsule())
+                                    }
+                                }
                             }
                         }
-                        .padding(.vertical, 4)
+                    } header: {
+                        Text("🏆 Podio Top 3 · Mejores escapadas")
                     }
+                }
+                
+                // Controles de ordenación y filtro por estrellas
+                Section {
+                    Picker("Ordenar por", selection: $ordenarPorRanking) {
+                        Text("Más recientes").tag(false)
+                        Text("Mejor puntuación").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    Picker("Filtro de estrellas", selection: $filtroEstrellasMin) {
+                        Text("Todas").tag(0)
+                        Text("3★+").tag(3)
+                        Text("4★+").tag(4)
+                        Text("4.5★+").tag(5)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
+                Section {
+                    if escapadasFiltradas.isEmpty {
+                        Text("Ninguna escapada cumple ese filtro de estrellas.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(escapadasFiltradas) { esc in
+                            NavigationLink(value: esc) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text("\(esc.icono) \(esc.titulo)")
+                                            .font(.headline)
+                                        Spacer()
+                                        if let media = esc.valoracion.mediaEstrellas {
+                                            HStack(spacing: 3) {
+                                                Image(systemName: "star.fill")
+                                                    .font(.caption2)
+                                                Text(String(format: "%.1f", media))
+                                                    .font(.caption.bold().monospacedDigit())
+                                            }
+                                            .foregroundStyle(.orange)
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 3)
+                                            .background(Color.orange.opacity(0.14))
+                                            .clipShape(Capsule())
+                                        } else {
+                                            Text("Sin puntuar")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    
+                                    Text("📍 \(esc.destino) · \(esc.fechaInicio.formatted(date: .abbreviated, time: .omitted))")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    
+                                    let totalViaje = esc.gastos.reduce(0) { $0 + $1.importe }
+                                    HStack {
+                                        Label("Total gastado", systemImage: "eurosign.circle.fill")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(Color.accentColor)
+                                        Spacer()
+                                        Text(String(format: "%.2f €", totalViaje))
+                                            .font(.caption.bold().monospacedDigit())
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                    .padding(.vertical, 2)
+                                    
+                                    if !esc.recuerdo.isEmpty {
+                                        Text("\"\(esc.recuerdo)\"")
+                                            .font(.caption)
+                                            .italic()
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Historial (\(escapadasFiltradas.count))")
                 }
             }
         }
         .navigationDestination(for: Escapada.self) { esc in
             DetalleEscapadaView(escapadaId: esc.id)
+        }
+    }
+    
+    private func medallaRanking(_ indice: Int) -> String {
+        switch indice {
+        case 0: return "🥇"
+        case 1: return "🥈"
+        default: return "🥉"
         }
     }
 }
