@@ -220,6 +220,50 @@ struct ActividadDia: Identifiable, Codable, Hashable {
     var diaIndex: Int             // 1, 2, 3... según los días del viaje
     var nombreSitio: String
     var urlSitio: String
+    var horaProgramada: Date? = nil
+    var completada: Bool = false
+    
+    init(
+        id: UUID = UUID(),
+        diaIndex: Int,
+        nombreSitio: String,
+        urlSitio: String,
+        horaProgramada: Date? = nil,
+        completada: Bool = false
+    ) {
+        self.id = id
+        self.diaIndex = diaIndex
+        self.nombreSitio = nombreSitio
+        self.urlSitio = urlSitio
+        self.horaProgramada = horaProgramada
+        self.completada = completada
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, diaIndex, nombreSitio, urlSitio, horaProgramada, completada
+    }
+    
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        diaIndex = try c.decodeIfPresent(Int.self, forKey: .diaIndex) ?? 1
+        nombreSitio = try c.decodeIfPresent(String.self, forKey: .nombreSitio) ?? ""
+        urlSitio = try c.decodeIfPresent(String.self, forKey: .urlSitio) ?? ""
+        horaProgramada = try c.decodeIfPresent(Date.self, forKey: .horaProgramada)
+        completada = try c.decodeIfPresent(Bool.self, forKey: .completada) ?? false
+    }
+}
+
+struct EventoLineaTemporal: Identifiable {
+    let id: String
+    let hora: Date
+    let titulo: String
+    let subtitulo: String
+    let icono: String
+    let esActividadEditable: Bool
+    let actividadId: UUID?
+    let completada: Bool
+    let urlEnlace: URL?
 }
 
 struct ValoracionViaje: Codable, Hashable {
@@ -1200,6 +1244,9 @@ struct DetalleEscapadaView: View {
     @State private var diaSeleccionado: Int = 1
     @State private var nuevoSitioNombre = ""
     @State private var nuevoSitioURL = ""
+    @State private var incluirHoraSitio = false
+    @State private var horaNuevoSitio = Calendar.current.date(bySettingHour: 11, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var verSoloPendientesTimeline = false
     @State private var nuevoItemTexto = ""
     @State private var nuevoItemAsignado = "Ambos"
     @State private var nuevaIdeaTexto = ""
@@ -1317,6 +1364,16 @@ struct DetalleEscapadaView: View {
                         // Formulario para añadir sitio y URL al día seleccionado
                         VStack(spacing: 8) {
                             TextField("Nombre del sitio o plan (ej: Museo del Prado)", text: $nuevoSitioNombre)
+                            
+                            HStack {
+                                Toggle("Añadir hora", isOn: $incluirHoraSitio)
+                                    .font(.caption.weight(.medium))
+                                if incluirHoraSitio {
+                                    DatePicker("", selection: $horaNuevoSitio, displayedComponents: .hourAndMinute)
+                                        .labelsHidden()
+                                }
+                            }
+                            
                             HStack {
                                 TextField("URL opcional (ej: https://...)", text: $nuevoSitioURL)
                                     .keyboardType(.URL)
@@ -1330,17 +1387,26 @@ struct DetalleEscapadaView: View {
                                     if !urlLimpia.isEmpty && !urlLimpia.hasPrefix("http") {
                                         urlLimpia = "https://" + urlLimpia
                                     }
+                                    var horaFinal: Date? = nil
+                                    if incluirHoraSitio {
+                                        let comps = Calendar.current.dateComponents([.hour, .minute], from: horaNuevoSitio)
+                                        let baseFecha = escapada.fechaParaDia(diaSeleccionado)
+                                        horaFinal = Calendar.current.date(bySettingHour: comps.hour ?? 11, minute: comps.minute ?? 0, second: 0, of: baseFecha)
+                                    }
                                     var copia = escapada
                                     copia.itinerario.append(
                                         ActividadDia(
                                             diaIndex: diaSeleccionado,
                                             nombreSitio: nombre,
-                                            urlSitio: urlLimpia
+                                            urlSitio: urlLimpia,
+                                            horaProgramada: horaFinal,
+                                            completada: false
                                         )
                                     )
                                     store.actualizarEscapada(copia)
                                     nuevoSitioNombre = ""
                                     nuevoSitioURL = ""
+                                    incluirHoraSitio = false
                                 } label: {
                                     Image(systemName: "plus.circle.fill")
                                         .font(.title3)
@@ -1350,6 +1416,81 @@ struct DetalleEscapadaView: View {
                         }
                         .padding(.vertical, 4)
                         
+                        // Línea temporal interactiva del día seleccionado
+                        let eventosDia = construirEventosLineaTemporal(para: escapada, dia: diaSeleccionado)
+                        let eventosVisibles = verSoloPendientesTimeline ? eventosDia.filter { !$0.completada } : eventosDia
+                        
+                        if !eventosDia.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Label("Línea temporal del Día \(diaSeleccionado)", systemImage: "clock.arrow.circlepath")
+                                        .font(.caption.bold())
+                                        .foregroundStyle(Color.accentColor)
+                                    Spacer()
+                                    Button {
+                                        verSoloPendientesTimeline.toggle()
+                                    } label: {
+                                        Text(verSoloPendientesTimeline ? "Ver todos" : "Solo pendientes")
+                                            .font(.caption2.bold())
+                                            .padding(.horizontal, 8)
+                                            .padding(.vertical, 4)
+                                            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                            .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                
+                                ForEach(eventosVisibles) { ev in
+                                    HStack(alignment: .top, spacing: 12) {
+                                        VStack(spacing: 4) {
+                                            Text(ev.hora.formatted(date: .omitted, time: .shortened))
+                                                .font(.caption2.bold().monospacedDigit())
+                                                .foregroundStyle(ev.completada ? .secondary : Color.accentColor)
+                                            Circle()
+                                                .fill(ev.completada ? Color.green : Color.accentColor)
+                                                .frame(width: 8, height: 8)
+                                        }
+                                        .frame(width: 52)
+                                        
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            HStack {
+                                                Text("\(ev.icono) \(ev.titulo)")
+                                                    .font(.subheadline.weight(.medium))
+                                                    .strikethrough(ev.completada)
+                                                    .foregroundStyle(ev.completada ? .secondary : .primary)
+                                                Spacer()
+                                                if ev.esActividadEditable, let actId = ev.actividadId {
+                                                    Button {
+                                                        alternarCompletadaActividad(escapada: escapada, actividadId: actId)
+                                                    } label: {
+                                                        Image(systemName: ev.completada ? "checkmark.circle.fill" : "circle")
+                                                            .foregroundStyle(ev.completada ? .green : .secondary)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                }
+                                            }
+                                            if !ev.subtitulo.isEmpty {
+                                                Text(ev.subtitulo)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            if let url = ev.urlEnlace {
+                                                Link(destination: url) {
+                                                    Label("Abrir enlace", systemImage: "safari")
+                                                        .font(.caption2.bold())
+                                                }
+                                            }
+                                        }
+                                        .padding(10)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    }
+                                }
+                            }
+                            .padding(.top, 6)
+                        }
+                        
                         let actividadesDelDia = escapada.itinerario.filter { $0.diaIndex == diaSeleccionado }
                         if actividadesDelDia.isEmpty {
                             Text("Aún no hay sitios planeados para el Día \(diaSeleccionado).")
@@ -1358,11 +1499,24 @@ struct DetalleEscapadaView: View {
                         } else {
                             ForEach(actividadesDelDia) { act in
                                 HStack(spacing: 10) {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .foregroundStyle(Color.accentColor)
+                                    Button {
+                                        alternarCompletadaActividad(escapada: escapada, actividadId: act.id)
+                                    } label: {
+                                        Image(systemName: act.completada ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(act.completada ? .green : Color.accentColor)
+                                    }
+                                    .buttonStyle(.plain)
+                                    
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(act.nombreSitio)
                                             .font(.subheadline.weight(.medium))
+                                            .strikethrough(act.completada)
+                                            .foregroundStyle(act.completada ? .secondary : .primary)
+                                        if let hora = act.horaProgramada {
+                                            Text("🕒 \(hora.formatted(date: .omitted, time: .shortened))")
+                                                .font(.caption2.bold())
+                                                .foregroundStyle(Color.accentColor)
+                                        }
                                         if let url = URL(string: act.urlSitio), !act.urlSitio.isEmpty {
                                             Link(destination: url) {
                                                 Label(act.urlSitio.replacingOccurrences(of: "https://", with: ""), systemImage: "safari")
@@ -1960,30 +2114,114 @@ struct DetalleEscapadaView: View {
         default: return "🛍️"
         }
     }
-}
-
-struct FilaEstrellasView: View {
-    let titulo: String
-    @Binding var puntuacion: Int
     
-    var body: some View {
-        HStack {
-            Text(titulo)
-                .font(.caption.weight(.medium))
-            Spacer()
-            HStack(spacing: 4) {
-                ForEach(1...5, id: \.self) { estrella in
-                    Button {
-                        puntuacion = (puntuacion == estrella) ? 0 : estrella
-                    } label: {
-                        Image(systemName: estrella <= puntuacion ? "star.fill" : "star")
-                            .font(.subheadline)
-                            .foregroundStyle(estrella <= puntuacion ? Color.orange : Color.secondary.opacity(0.4))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+    private func alternarCompletadaActividad(escapada: Escapada, actividadId: UUID) {
+        var copia = escapada
+        if let idx = copia.itinerario.firstIndex(where: { $0.id == actividadId }) {
+            copia.itinerario[idx].completada.toggle()
+            store.actualizarEscapada(copia)
         }
+    }
+    
+    private func construirEventosLineaTemporal(para escapada: Escapada, dia: Int) -> [EventoLineaTemporal] {
+        let cal = Calendar.current
+        let fechaDia = escapada.fechaParaDia(dia)
+        var eventos: [EventoLineaTemporal] = []
+        
+        for vuelo in escapada.vuelos where cal.isDate(vuelo.fechaHoraSalida, inSameDayAs: fechaDia) {
+            eventos.append(
+                EventoLineaTemporal(
+                    id: "vuelo-\(vuelo.id.uuidString)",
+                    hora: vuelo.fechaHoraSalida,
+                    titulo: "\(vuelo.origen) → \(vuelo.destino) (\(vuelo.aerolinea))",
+                    subtitulo: vuelo.terminalPuerta.isEmpty ? "Vuelo \(vuelo.trayecto)" : "\(vuelo.trayecto) · \(vuelo.terminalPuerta)",
+                    icono: "✈️",
+                    esActividadEditable: false,
+                    actividadId: nil,
+                    completada: false,
+                    urlEnlace: URL(string: vuelo.urlReserva)
+                )
+            )
+        }
+        
+        for tren in escapada.trenes where cal.isDate(tren.fechaHoraSalida, inSameDayAs: fechaDia) {
+            eventos.append(
+                EventoLineaTemporal(
+                    id: "tren-\(tren.id.uuidString)",
+                    hora: tren.fechaHoraSalida,
+                    titulo: "\(tren.estacionOrigen) → \(tren.estacionDestino)",
+                    subtitulo: "\(tren.operadora) · \(tren.trayecto)",
+                    icono: "🚂",
+                    esActividadEditable: false,
+                    actividadId: nil,
+                    completada: false,
+                    urlEnlace: URL(string: tren.urlReserva)
+                )
+            )
+        }
+        
+        if dia == 1, let aloj = escapada.alojamientos.first,
+           let horaIn = parsearHoraTexto(aloj.horaCheckIn, sobre: fechaDia) {
+            eventos.append(
+                EventoLineaTemporal(
+                    id: "checkin-\(aloj.id.uuidString)",
+                    hora: horaIn,
+                    titulo: "Check-in: \(aloj.nombre.isEmpty ? "Alojamiento" : aloj.nombre)",
+                    subtitulo: aloj.direccion,
+                    icono: "🔑",
+                    esActividadEditable: false,
+                    actividadId: nil,
+                    completada: false,
+                    urlEnlace: URL(string: aloj.urlReserva)
+                )
+            )
+        }
+        
+        if dia == escapada.totalDias, let aloj = escapada.alojamientos.first,
+           let horaOut = parsearHoraTexto(aloj.horaCheckOut, sobre: fechaDia) {
+            eventos.append(
+                EventoLineaTemporal(
+                    id: "checkout-\(aloj.id.uuidString)",
+                    hora: horaOut,
+                    titulo: "Check-out: \(aloj.nombre.isEmpty ? "Alojamiento" : aloj.nombre)",
+                    subtitulo: aloj.direccion,
+                    icono: "🧳",
+                    esActividadEditable: false,
+                    actividadId: nil,
+                    completada: false,
+                    urlEnlace: URL(string: aloj.urlReserva)
+                )
+            )
+        }
+        
+        for act in escapada.itinerario where act.diaIndex == dia {
+            let horaAct = act.horaProgramada ?? cal.date(bySettingHour: 12, minute: 0, second: 0, of: fechaDia) ?? fechaDia
+            eventos.append(
+                EventoLineaTemporal(
+                    id: "act-\(act.id.uuidString)",
+                    hora: horaAct,
+                    titulo: act.nombreSitio,
+                    subtitulo: act.horaProgramada == nil ? "Sin hora fija (12:00 aprox.)" : "Plan del día",
+                    icono: "📍",
+                    esActividadEditable: true,
+                    actividadId: act.id,
+                    completada: act.completada,
+                    urlEnlace: URL(string: act.urlSitio)
+                )
+            )
+        }
+        
+        return eventos.sorted { $0.hora < $1.hora }
+    }
+    
+    private func parsearHoraTexto(_ texto: String, sobre fecha: Date) -> Date? {
+        let partes = texto.split(separator: ":")
+        guard partes.count == 2,
+              let h = Int(partes[0].trimmingCharacters(in: .whitespaces)),
+              let m = Int(partes[1].trimmingCharacters(in: .whitespaces)) else {
+            return nil
+        }
+        return Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: fecha)
     }
 }
 
