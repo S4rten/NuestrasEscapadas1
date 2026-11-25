@@ -2225,6 +2225,31 @@ struct DetalleEscapadaView: View {
     }
 }
 
+struct FilaEstrellasView: View {
+    let titulo: String
+    @Binding var puntuacion: Int
+    
+    var body: some View {
+        HStack {
+            Text(titulo)
+                .font(.caption.weight(.medium))
+            Spacer()
+            HStack(spacing: 4) {
+                ForEach(1...5, id: \.self) { estrella in
+                    Button {
+                        puntuacion = (puntuacion == estrella) ? 0 : estrella
+                    } label: {
+                        Image(systemName: estrella <= puntuacion ? "star.fill" : "star")
+                            .font(.subheadline)
+                            .foregroundStyle(estrella <= puntuacion ? Color.orange : Color.secondary.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
 struct VueloCardView: View {
     let vuelo: Vuelo
     @State private var copiado = false
